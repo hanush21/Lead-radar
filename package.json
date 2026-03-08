@@ -2,16 +2,20 @@
   "name": "leadradar",
   "version": "0.0.1",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
     "test": "turbo test",
-    "clean": "turbo clean && rm -rf node_modules",
+    "clean": "turbo clean && rimraf node_modules",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
-    "db:studio": "cd apps/web && pnpm prisma studio"
+    "db:studio": "npm run prisma studio --workspace=apps/web"
   },
   "devDependencies": {
     "turbo": "^2.0.0",
@@ -20,8 +24,7 @@
     "@types/node": "^20.14.0"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "pnpm": ">=9.0.0"
+    "node": ">=18.0.0"
   },
-  "packageManager": "pnpm@9.4.0"
+  "packageManager": "npm@11.7.0"
 }
