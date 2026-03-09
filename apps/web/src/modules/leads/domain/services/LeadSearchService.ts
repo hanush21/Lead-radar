@@ -5,6 +5,7 @@ export interface SearchResult {
   address: string;
   lat: number;
   lng: number;
+  providerPlaceId: string | null;
   phone: string | null;
   website: string | null;
   rating: number | null;

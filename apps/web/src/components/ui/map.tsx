@@ -117,12 +117,13 @@ export default function Map({ initialCenter, initialRadius, onLocationChange }: 
       center: startCenter,
       zoom: 12,
       attributionControl: false,
+      cooperativeGestures: false,
     });
 
     map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
     map.current.addControl(new mapboxgl.ScaleControl(), "bottom-left");
-    map.current.scrollZoom.setWheelZoomRate(1 / 190);
-    map.current.scrollZoom.setZoomRate(1 / 75);
+    map.current.scrollZoom.setWheelZoomRate(2);
+    map.current.scrollZoom.setZoomRate(1);
 
     marker.current = new mapboxgl.Marker({ color: "#2563EB" })
       .setLngLat(startCenter)
@@ -151,17 +152,17 @@ export default function Map({ initialCenter, initialRadius, onLocationChange }: 
       onLocationChangeRef.current(newCenter, currentRadius);
     });
 
-    map.current.on("zoom", () => {
-      if (map.current) {
-        const center = map.current.getCenter().toArray() as [number, number];
-        const zoom = map.current.getZoom();
-        const newRadius = Math.round(50 / Math.pow(2, zoom - 12));
-        const clampedRadius = Math.max(1, Math.min(50, newRadius));
+    map.current.on("moveend", () => {
+      if (!map.current) return;
+      const center = map.current.getCenter().toArray() as [number, number];
+      const zoom = map.current.getZoom();
+      const newRadius = Math.round(50 / Math.pow(2, zoom - 12));
+      const clampedRadius = Math.max(1, Math.min(50, newRadius));
 
-        initialRadiusRef.current = clampedRadius;
-        updateCircle(center, clampedRadius);
-        onLocationChangeRef.current(center, clampedRadius);
-      }
+      initialRadiusRef.current = clampedRadius;
+      marker.current?.setLngLat(center);
+      updateCircle(center, clampedRadius);
+      onLocationChangeRef.current(center, clampedRadius);
     });
 
     return () => {

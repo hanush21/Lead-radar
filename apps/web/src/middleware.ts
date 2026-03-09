@@ -4,30 +4,27 @@ import { getToken } from "next-auth/jwt";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = await getToken({ 
-    req: request, 
-    secret: process.env.NEXTAUTH_SECRET 
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
   });
 
-  // Allow access to auth pages and API routes
-  if (
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/register") ||
-    pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico")
-  ) {
-    // Redirect authenticated users away from auth pages
-    if (token && (pathname.startsWith("/login") || pathname.startsWith("/register"))) {
-      return NextResponse.redirect(new URL("/", request.url));
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
+
+  if (token) {
+    // Authenticated users should not stay in auth forms or home splash.
+    if (isAuthPage || pathname === "/") {
+      return NextResponse.redirect(new URL("/search", request.url));
     }
     return NextResponse.next();
   }
 
-  // Redirect unauthenticated users to login
   if (!token) {
+    if (isAuthPage) return NextResponse.next();
+
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
+    const callbackUrl = `${pathname}${request.nextUrl.search}`;
+    loginUrl.searchParams.set("callbackUrl", callbackUrl);
     return NextResponse.redirect(loginUrl);
   }
 

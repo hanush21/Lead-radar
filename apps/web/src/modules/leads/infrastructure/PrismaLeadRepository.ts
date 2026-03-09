@@ -1,6 +1,8 @@
 import { prisma } from "@/shared/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import type { Lead, CreateLeadInput } from "../domain/entities/Lead";
-import type { ILeadRepository, LeadFilters } from "../domain/repositories/ILeadRepository";
+import type { ILeadRepository, LeadFilters, LeadUpsertSummary } from "../domain/repositories/ILeadRepository";
+import { buildLeadDedupeKey } from "../domain/services/LeadIdentity";
 
 function mapPrismaLead(raw: any): Lead {
   return {
@@ -11,53 +13,81 @@ function mapPrismaLead(raw: any): Lead {
 
 export class PrismaLeadRepository implements ILeadRepository {
   async create(input: CreateLeadInput): Promise<Lead> {
-    const existing = await this.findExistingLead(input);
-    if (existing) {
-      const lead = await prisma.lead.update({
-        where: { id: existing.id },
-        data: {
-          name: input.name,
-          address: input.address,
-          lat: input.lat,
-          lng: input.lng,
-          category: input.category,
-          phone: input.phone ?? existing.phone ?? null,
-          email: input.email ?? existing.email ?? null,
-          website: input.website ?? existing.website ?? null,
-          rating: input.rating ?? existing.rating ?? null,
-          reviewCount: Math.max(input.reviewCount ?? 0, existing.reviewCount ?? 0),
-          hasBookingSystem: input.hasBookingSystem ?? existing.hasBookingSystem,
-          hasOnlinePayment: input.hasOnlinePayment ?? existing.hasOnlinePayment,
-          opportunities: JSON.stringify(input.opportunities ?? existing.opportunities ?? []),
-          sourceQuery: input.sourceQuery,
+    const dedupeKey = input.dedupeKey || buildLeadDedupeKey(input);
+    const existing = await prisma.lead.findUnique({
+      where: {
+        userId_dedupeKey: {
+          userId: input.userId,
+          dedupeKey,
         },
-      });
-      return mapPrismaLead(lead);
-    }
-
-    const lead = await prisma.lead.create({
-      data: {
-        ...input,
-        phone: input.phone ?? null,
-        email: input.email ?? null,
-        website: input.website ?? null,
-        rating: input.rating ?? null,
-        reviewCount: input.reviewCount ?? 0,
-        hasBookingSystem: input.hasBookingSystem ?? false,
-        hasOnlinePayment: input.hasOnlinePayment ?? false,
-        opportunities: JSON.stringify(input.opportunities ?? []),
       },
     });
+
+    const lead = await prisma.lead.upsert({
+      where: {
+        userId_dedupeKey: {
+          userId: input.userId,
+          dedupeKey,
+        },
+      },
+      create: {
+        ...this.mapCreateInput(input, dedupeKey),
+        createdAt: new Date(),
+      },
+      update: this.mapUpdateInput(input, existing ? mapPrismaLead(existing) : null, dedupeKey),
+    });
+
     return mapPrismaLead(lead);
   }
 
   async createMany(inputs: CreateLeadInput[]): Promise<Lead[]> {
-    const leads: Lead[] = [];
-    for (const input of inputs) {
-      const lead = await this.create(input);
-      leads.push(lead);
-    }
+    const { leads } = await this.upsertMany(inputs);
     return leads;
+  }
+
+  async upsertMany(inputs: CreateLeadInput[]): Promise<{ leads: Lead[]; summary: LeadUpsertSummary }> {
+    const leads: Lead[] = [];
+    let created = 0;
+    let updated = 0;
+
+    for (const input of inputs) {
+      const dedupeKey = input.dedupeKey || buildLeadDedupeKey(input);
+      const existing = await prisma.lead.findUnique({
+        where: {
+          userId_dedupeKey: {
+            userId: input.userId,
+            dedupeKey,
+          },
+        },
+      });
+
+      const lead = await prisma.lead.upsert({
+        where: {
+          userId_dedupeKey: {
+            userId: input.userId,
+            dedupeKey,
+          },
+        },
+        create: {
+          ...this.mapCreateInput(input, dedupeKey),
+          createdAt: new Date(),
+        },
+        update: this.mapUpdateInput(input, existing ? mapPrismaLead(existing) : null, dedupeKey),
+      });
+
+      leads.push(mapPrismaLead(lead));
+      if (existing) updated++;
+      else created++;
+    }
+
+    return {
+      leads,
+      summary: {
+        created,
+        updated,
+        deduped: updated,
+      },
+    };
   }
 
   async findById(id: string): Promise<Lead | null> {
@@ -78,7 +108,7 @@ export class PrismaLeadRepository implements ILeadRepository {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ leadScore: "desc" }, { createdAt: "desc" }],
       }),
       prisma.lead.count({ where }),
     ]);
@@ -89,7 +119,7 @@ export class PrismaLeadRepository implements ILeadRepository {
   async update(id: string, data: Partial<Lead>): Promise<Lead> {
     const updateData: any = { ...data };
     if (data.opportunities) {
-      updateData.opportunities = JSON.stringify(data.opportunities);
+      updateData.opportunities = data.opportunities;
     }
     delete updateData.id;
     delete updateData.userId;
@@ -106,43 +136,59 @@ export class PrismaLeadRepository implements ILeadRepository {
     await prisma.lead.delete({ where: { id } });
   }
 
-  private async findExistingLead(input: CreateLeadInput): Promise<Lead | null> {
-    const website = normalize(input.website);
-    if (website) {
-      const byWebsite = await prisma.lead.findFirst({
-        where: {
-          userId: input.userId,
-          website: {
-            equals: website,
-            mode: "insensitive",
-          },
-        },
-      });
-      if (byWebsite) return mapPrismaLead(byWebsite);
-    }
-
-    const name = normalize(input.name);
-    const address = normalize(input.address);
-    if (!name || !address) return null;
-
-    const byNameAndAddress = await prisma.lead.findFirst({
-      where: {
-        userId: input.userId,
-        name: {
-          equals: input.name.trim(),
-          mode: "insensitive",
-        },
-        address: {
-          equals: input.address.trim(),
-          mode: "insensitive",
-        },
-      },
-    });
-
-    return byNameAndAddress ? mapPrismaLead(byNameAndAddress) : null;
+  private mapCreateInput(input: CreateLeadInput, dedupeKey: string) {
+    return {
+      name: input.name,
+      category: input.category,
+      address: input.address,
+      lat: input.lat,
+      lng: input.lng,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      website: input.website ?? null,
+      rating: input.rating ?? null,
+      reviewCount: input.reviewCount ?? 0,
+      hasBookingSystem: input.hasBookingSystem ?? false,
+      hasOnlinePayment: input.hasOnlinePayment ?? false,
+      status: "NEW" as const,
+      opportunities: this.toPrismaJson(input.opportunities ?? []),
+      provider: input.provider || "serpapi",
+      providerPlaceId: input.providerPlaceId ?? null,
+      dedupeKey,
+      leadScore: input.leadScore ?? 0,
+      enrichmentStatus: input.enrichmentStatus ?? "PENDING",
+      sourceQuery: input.sourceQuery,
+      userId: input.userId,
+      lastSeenAt: input.lastSeenAt ?? new Date(),
+    };
   }
-}
 
-function normalize(value: string | null | undefined) {
-  return (value ?? "").trim();
+  private mapUpdateInput(input: CreateLeadInput, existing: Lead | null, dedupeKey: string) {
+    return {
+      name: input.name,
+      category: input.category,
+      address: input.address,
+      lat: input.lat,
+      lng: input.lng,
+      phone: input.phone ?? existing?.phone ?? null,
+      email: input.email ?? existing?.email ?? null,
+      website: input.website ?? existing?.website ?? null,
+      rating: input.rating ?? existing?.rating ?? null,
+      reviewCount: Math.max(input.reviewCount ?? 0, existing?.reviewCount ?? 0),
+      hasBookingSystem: input.hasBookingSystem ?? existing?.hasBookingSystem ?? false,
+      hasOnlinePayment: input.hasOnlinePayment ?? existing?.hasOnlinePayment ?? false,
+      opportunities: this.toPrismaJson(input.opportunities ?? existing?.opportunities ?? []),
+      provider: input.provider || existing?.provider || "serpapi",
+      providerPlaceId: input.providerPlaceId ?? existing?.providerPlaceId ?? null,
+      dedupeKey,
+      leadScore: input.leadScore ?? existing?.leadScore ?? 0,
+      enrichmentStatus: input.enrichmentStatus ?? existing?.enrichmentStatus ?? "PENDING",
+      sourceQuery: input.sourceQuery,
+      lastSeenAt: input.lastSeenAt ?? new Date(),
+    };
+  }
+
+  private toPrismaJson(value: unknown): Prisma.InputJsonValue {
+    return value as Prisma.InputJsonValue;
+  }
 }

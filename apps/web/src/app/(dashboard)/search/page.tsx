@@ -19,6 +19,12 @@ interface LeadResult {
   opportunities: Array<{ label: string; suggestedService: string }>;
 }
 
+interface LocationSuggestion {
+  label: string;
+  lat: number;
+  lng: number;
+}
+
 export default function SearchPage() {
   const [category, setCategory] = useState<string>("");
   const [lat, setLat] = useState<number>(40.4168);
@@ -26,7 +32,10 @@ export default function SearchPage() {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [results, setResults] = useState<LeadResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [error, setError] = useState("");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState<LocationSuggestion[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
 
   const handleLocationChange = useCallback((center: [number, number], radius: number) => {
@@ -67,6 +76,63 @@ export default function SearchPage() {
     }
   };
 
+  const handleLocationSearch = async () => {
+    const query = locationQuery.trim();
+    if (!query) return;
+
+    const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    if (!mapboxToken) {
+      setError("Falta NEXT_PUBLIC_MAPBOX_TOKEN para buscar ubicaciones.");
+      return;
+    }
+
+    setLocationLoading(true);
+    setError("");
+    setLocationResults([]);
+
+    try {
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxToken}&limit=5&language=es`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const mapboxSuggestions: LocationSuggestion[] = (data?.features ?? [])
+        .filter(
+          (feature: { center?: number[]; place_name?: string }) =>
+            Array.isArray(feature.center) && feature.center.length >= 2
+        )
+        .map((feature: { center?: number[]; place_name?: string }) => ({
+          label: feature.place_name ?? "Ubicacion sin nombre",
+          lng: feature.center?.[0] ?? 0,
+          lat: feature.center?.[1] ?? 0,
+        }));
+
+      let suggestions = mapboxSuggestions;
+      if (suggestions.length === 0) {
+        // Fallback when Mapbox has no match or token restrictions apply.
+        const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(
+          query
+        )}`;
+        const fallbackRes = await fetch(fallbackUrl);
+        const fallbackData = await fallbackRes.json();
+        suggestions = (fallbackData ?? []).map((item: { display_name: string; lat: string; lon: string }) => ({
+          label: item.display_name,
+          lat: Number(item.lat),
+          lng: Number(item.lon),
+        }));
+      }
+
+      if (suggestions.length === 0) {
+        setError("No se encontro la ubicacion. Prueba otro nombre.");
+        return;
+      }
+
+      setLocationResults(suggestions);
+    } catch {
+      setError("No se pudo buscar la ubicacion.");
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -101,6 +167,54 @@ export default function SearchPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Buscar ubicacion</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={locationQuery}
+                  onChange={(e) => setLocationQuery(e.target.value)}
+                  placeholder="Ej: Barcelona, Valencia, Gracia..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleLocationSearch();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleLocationSearch}
+                  disabled={locationLoading || !locationQuery.trim()}
+                >
+                  {locationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                </Button>
+              </div>
+              {locationResults.length > 0 && (
+                <div className="rounded-xl border border-input/50 bg-background/60 max-h-44 overflow-auto">
+                  {locationResults.map((item) => (
+                    <button
+                      key={`${item.lat}-${item.lng}-${item.label}`}
+                      type="button"
+                      onClick={() => {
+                        setLng(item.lng);
+                        setLat(item.lat);
+                        setLocationResults([]);
+                        setHasSearched(false);
+                        setResults([]);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent/50 transition-colors border-b border-input/30 last:border-b-0"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Centro actual: {lat.toFixed(4)}, {lng.toFixed(4)}
+              </p>
+            </div>
+
             <div className="space-y-2">
               <Label>Categoria</Label>
               <select

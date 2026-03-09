@@ -62,6 +62,12 @@ model Lead {
   hasOnlinePayment Boolean    @default(false)
   status           LeadStatus @default(NEW)
   opportunities    Json       @default("[]")
+  provider         String     @default("serpapi")
+  providerPlaceId  String?
+  dedupeKey        String
+  leadScore        Int        @default(0)
+  enrichmentStatus EnrichmentStatus @default(PENDING)
+  lastSeenAt       DateTime   @default(now())
   sourceQuery      String
   userId           String
   createdAt        DateTime   @default(now())
@@ -72,6 +78,9 @@ model Lead {
   @@index([lat, lng])
   @@index([category, status])
   @@index([userId])
+  @@index([userId, leadScore])
+  @@unique([userId, dedupeKey])
+  @@unique([userId, provider, providerPlaceId])
 }
 
 model Campaign {
@@ -129,5 +138,12 @@ enum EmailStatus {
   OPENED
   CLICKED
   BOUNCED
+  FAILED
+}
+
+enum EnrichmentStatus {
+  PENDING
+  PROCESSING
+  DONE
   FAILED
 }

@@ -5,6 +5,8 @@ interface SerpApiResponse {
   local_results?: Array<{
     title: string;
     address: string;
+    place_id?: string;
+    data_id?: string;
     gps_coordinates?: {
       latitude: number;
       longitude: number;
@@ -66,6 +68,7 @@ export class SerperSearchProvider implements ISearchProvider {
         address: place.address,
         lat: place.gps_coordinates?.latitude ?? 0,
         lng: place.gps_coordinates?.longitude ?? 0,
+        providerPlaceId: place.place_id ?? place.data_id ?? null,
         phone: place.phone ?? null,
         website: place.website ?? null,
         rating: place.rating ?? null,

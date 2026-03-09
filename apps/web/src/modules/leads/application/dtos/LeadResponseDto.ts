@@ -15,6 +15,9 @@ export interface LeadResponseDto {
   hasBookingSystem: boolean;
   hasOnlinePayment: boolean;
   status: string;
+  leadScore: number;
+  enrichmentStatus: string;
+  lastSeenAt: string;
   opportunities: Array<{
     type: string;
     label: string;
@@ -41,6 +44,9 @@ export function toLeadResponseDto(lead: Lead): LeadResponseDto {
     hasBookingSystem: lead.hasBookingSystem,
     hasOnlinePayment: lead.hasOnlinePayment,
     status: lead.status,
+    leadScore: lead.leadScore,
+    enrichmentStatus: lead.enrichmentStatus,
+    lastSeenAt: lead.lastSeenAt.toISOString(),
     opportunities: lead.opportunities,
     sourceQuery: lead.sourceQuery,
     createdAt: lead.createdAt.toISOString(),

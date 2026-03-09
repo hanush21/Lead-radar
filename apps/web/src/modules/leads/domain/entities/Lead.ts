@@ -6,6 +6,7 @@ export interface Opportunity {
 }
 
 export type LeadStatus = "NEW" | "CONTACTED" | "REPLIED" | "CONVERTED" | "DISCARDED";
+export type EnrichmentStatus = "PENDING" | "PROCESSING" | "DONE" | "FAILED";
 
 export interface Lead {
   id: string;
@@ -22,6 +23,12 @@ export interface Lead {
   hasBookingSystem: boolean;
   hasOnlinePayment: boolean;
   status: LeadStatus;
+  provider: string;
+  providerPlaceId: string | null;
+  dedupeKey: string;
+  leadScore: number;
+  enrichmentStatus: EnrichmentStatus;
+  lastSeenAt: Date;
   opportunities: Opportunity[];
   sourceQuery: string;
   userId: string;
@@ -42,6 +49,12 @@ export interface CreateLeadInput {
   reviewCount?: number;
   hasBookingSystem?: boolean;
   hasOnlinePayment?: boolean;
+  provider: string;
+  providerPlaceId?: string | null;
+  dedupeKey: string;
+  leadScore?: number;
+  enrichmentStatus?: EnrichmentStatus;
+  lastSeenAt?: Date;
   opportunities?: Opportunity[];
   sourceQuery: string;
   userId: string;

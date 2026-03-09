@@ -21,30 +21,39 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
+    const callbackFromQuery =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("callbackUrl")
+        : null;
+    const callbackUrl =
+      callbackFromQuery && callbackFromQuery.startsWith("/") && !callbackFromQuery.startsWith("//")
+        ? callbackFromQuery
+        : "/search";
+
     const result = await signIn("credentials", {
       email,
       password,
       redirect: false,
+      callbackUrl,
     });
 
     setLoading(false);
 
     if (result?.error) {
-      setError("Email o contraseña incorrectos");
-    } else {
-      router.push("/search");
-      router.refresh();
+      setError("Email o contrasena incorrectos");
+      return;
     }
+
+    router.push(callbackUrl);
+    router.refresh();
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-50 via-white to-gray-100 px-4">
       <Card className="w-full max-w-md border-0 shadow-2xl">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Iniciar Sesión</CardTitle>
-          <CardDescription>
-            Accede a tu cuenta de LeadRadar
-          </CardDescription>
+          <CardTitle className="text-2xl">Iniciar Sesion</CardTitle>
+          <CardDescription>Accede a tu cuenta de LeadRadar</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
@@ -68,14 +77,14 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password">Contrasena</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="••••••••"
+                placeholder="********"
               />
             </div>
 
@@ -85,9 +94,9 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-sm text-muted-foreground">
-            ¿No tienes cuenta?{" "}
+            No tienes cuenta?{" "}
             <Link href="/register" className="font-medium text-primary hover:underline">
-              Regístrate
+              Registrate
             </Link>
           </p>
         </CardContent>

@@ -1,63 +1,71 @@
 # LeadRadar
 
-LeadRadar is a local lead generation platform built with Next.js 14, TypeScript, Prisma, NextAuth, and PostgreSQL.
+LeadRadar es una plataforma de captacion de leads locales construida con Next.js, Prisma y PostgreSQL.  
+Incluye autenticacion, busqueda geolocalizada, gestion de leads/campanas y enriquecimiento asincrono.
 
-The project is organized as a monorepo and currently ships one app:
-- `apps/web`: main web app (dashboard + REST API)
+## Estado actual (Hardening v1)
 
-## What It Does
+Se implemento un hardening de captacion sin romper la API actual:
 
-- User auth (register/login) with NextAuth credentials
-- Lead search by map center + radius + business category
-- Lead enrichment and opportunity analysis
-- Campaign creation and campaign send flow
-- Basic analytics (leads, campaigns, email metrics)
-- Lead deduplication on search/import
+- `POST /api/v1/search` sigue devolviendo leads en la respuesta inmediata.
+- Dedupe reforzado en base de datos con claves unicas por usuario.
+- Pipeline interno asincrono con cola (`pg-boss`) y worker separado.
+- Scoring de leads (0-100) y priorizacion por score.
+- Rate limit activo en busquedas.
+- Trazabilidad con contadores operativos en `meta` y logs.
 
-## Current Stack
+## Stack
 
 - Next.js 14 (App Router)
 - React 18 + TypeScript
-- Prisma ORM + PostgreSQL
-- NextAuth v5 (beta)
+- Prisma + PostgreSQL
+- NextAuth v5
+- pg-boss (cola sobre PostgreSQL)
 - Tailwind CSS
-- Vitest
+- Vitest + ESLint + TypeScript
 - Turborepo
 
-## Project Structure
+## Estructura
 
 ```text
 leadradar/
   apps/
     web/
       prisma/
+      scripts/
       src/
-        app/
-        modules/
-        components/
-        shared/
-  package.json
-  turbo.json
+  Dockerfile
+  docker-compose.yml
 ```
 
-## API Routes (Current)
+## API relevante
 
-- `POST /api/auth/register`
-- `GET|POST /api/auth/[...nextauth]`
 - `POST /api/v1/search`
+  - Respuesta compatible (`data` con leads).
+  - `meta` extendido: `fetched`, `insideRadius`, `dedupedInMemory`, `created`, `updated`, `deduped`, `queuedForEnrichment`, `persisted`, `total`.
 - `GET /api/v1/leads`
-- `GET|PATCH|DELETE /api/v1/leads/[id]`
-- `GET /api/v1/analytics`
-- `GET|POST /api/v1/campaigns`
-- `GET /api/v1/campaigns/[id]`
-- `POST /api/v1/campaigns/[id]/send`
-- `GET /api/v1/campaigns/[id]/stats`
+  - Orden por `leadScore desc, createdAt desc`.
 
-## Environment Variables
+## Modelo Lead (campos nuevos)
 
-Create `apps/web/.env.local` from `apps/web/.env.example`.
+- `provider` (default `serpapi`)
+- `providerPlaceId` (nullable)
+- `dedupeKey` (unico por usuario)
+- `leadScore` (default `0`)
+- `enrichmentStatus` (`PENDING | PROCESSING | DONE | FAILED`)
+- `lastSeenAt`
 
-Required:
+Unicidad garantizada en DB:
+
+- `@@unique([userId, dedupeKey])`
+- `@@unique([userId, provider, providerPlaceId])`
+
+## Variables de entorno
+
+Crear `apps/web/.env.local` desde `apps/web/.env.example`.
+
+Requeridas:
+
 - `DATABASE_URL`
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
@@ -66,71 +74,66 @@ Required:
 - `RESEND_FROM_EMAIL`
 - `NEXT_PUBLIC_MAPBOX_TOKEN`
 
-## Local Development
+Opcionales del worker:
 
-1. Install dependencies
+- `WORKER_CONCURRENCY` (default `3`)
+- `WORKER_ONCE=true` para ejecucion unica
 
-```bash
-npm install
-```
+## Migraciones y backfill (importante en entornos con datos)
 
-2. Configure environment
+El hardening usa migracion en 2 pasos para no romper historicos:
 
-```bash
-cp apps/web/.env.example apps/web/.env.local
-```
-
-3. Run DB migrations
-
+1. Aplicar step1:
 ```bash
 npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma
 ```
 
-4. Start development server
+2. Ejecutar backfill:
+```bash
+npm run leads:backfill-dedupe --workspace=apps/web
+```
+
+3. Aplicar step2 (constraints unicos finales):
+```bash
+npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma
+```
+
+## Desarrollo local
 
 ```bash
+npm install
+npm run db:generate --workspace=apps/web
 npm run dev
 ```
 
-App runs on:
-- `http://localhost:3000`
+## Scripts utiles
 
-## Useful Scripts
-
-From repo root:
+Desde la raiz:
 
 - `npm run dev`
-- `npm run build`
 - `npm run lint`
 - `npm run type-check`
 - `npm test`
-- `npm run db:generate`
-- `npm run db:migrate`
+- `npm run build`
+
+Desde `apps/web`:
+
+- `npm run worker:start`
+- `npm run worker:once`
+- `npm run leads:backfill-dedupe`
 
 ## Docker
 
-This repo includes:
-- `Dockerfile`
-- `docker-compose.yml`
+`docker-compose.yml` levanta:
 
-Quick start:
+- `db` (PostgreSQL)
+- `web` (Next.js)
+- `worker` (procesador de jobs `lead.postprocess` y `lead.recheck`)
+
+Arranque:
 
 ```bash
 docker compose up --build
 ```
 
-This starts:
-- `db` (PostgreSQL on `localhost:5432`)
-- `web` (Next.js on `http://localhost:3000`)
-
-The web container runs Prisma migrations on boot:
-- `prisma migrate deploy`
-
-## Notes About Search and Leads
-
-- Map selection is used as the real search center.
-- Results are filtered by real radius distance (Haversine).
-- Duplicate leads are prevented:
-  - inside the same search result set
-  - against existing user leads in DB (update instead of duplicate insert)
-
+`web` y `worker` ejecutan `prisma migrate deploy` al iniciar.

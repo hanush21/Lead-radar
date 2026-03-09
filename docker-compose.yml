@@ -44,6 +44,24 @@ services:
       npm run start --workspace=apps/web
       "
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: leadradar-worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/leadradar
+      WORKER_CONCURRENCY: 3
+    command: >
+      sh -c "
+      npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma &&
+      npm run worker:start --workspace=apps/web
+      "
+
 volumes:
   postgres_data:
-

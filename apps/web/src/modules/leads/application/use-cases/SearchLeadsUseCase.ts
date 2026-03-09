@@ -4,6 +4,8 @@ import type { Opportunity } from "../../domain/entities/Lead";
 import type { SearchLeadsDto } from "../dtos/SearchLeadsDto";
 import { createGeoRadius } from "../../domain/value-objects/GeoRadius";
 import { getCategoryLabel } from "../../domain/value-objects/BusinessCategory";
+import { buildLeadDedupeKey } from "../../domain/services/LeadIdentity";
+import { calculateLeadScore } from "../../domain/services/LeadScoring";
 
 export interface ILeadAnalyzer {
   analyze(lead: {
@@ -14,26 +16,49 @@ export interface ILeadAnalyzer {
   }): Opportunity[];
 }
 
+export interface ILeadProcessingQueue {
+  enqueuePostprocess(payload: { leadId: string; userId: string }): Promise<boolean>;
+}
+
+export interface SearchLeadsResult {
+  leads: Awaited<ReturnType<ILeadRepository["createMany"]>>;
+  meta: {
+    fetched: number;
+    insideRadius: number;
+    dedupedInMemory: number;
+    created: number;
+    updated: number;
+    deduped: number;
+    queuedForEnrichment: number;
+    persisted: number;
+  };
+}
+
 export class SearchLeadsUseCase {
   constructor(
     private readonly searchProvider: ISearchProvider,
     private readonly leadRepository: ILeadRepository,
-    private readonly leadAnalyzer: ILeadAnalyzer
+    private readonly leadAnalyzer: ILeadAnalyzer,
+    private readonly leadProcessingQueue?: ILeadProcessingQueue
   ) {}
 
-  async execute(dto: SearchLeadsDto, userId: string) {
+  async execute(dto: SearchLeadsDto, userId: string): Promise<SearchLeadsResult> {
     const geo = createGeoRadius(dto.lat, dto.lng, dto.radiusKm);
     const searchLabel = getCategoryLabel(dto.category);
-    const results = await this.searchProvider.search(geo, searchLabel);
-    const filteredResults = results
-      .filter((result) => isWithinRadiusKm(geo.lat, geo.lng, result.lat, result.lng, geo.radiusKm))
-      .filter(onlyUniqueByBusinessKey);
+    const fetchedResults = await this.searchProvider.search(geo, searchLabel);
 
-    const leadsToCreate = filteredResults.map((result) => {
+    const insideRadius = fetchedResults.filter((result) =>
+      isWithinRadiusKm(geo.lat, geo.lng, result.lat, result.lng, geo.radiusKm)
+    );
+    const uniqueResults = insideRadius.filter(onlyUniqueByBusinessKey);
+
+    const leadsToCreate = uniqueResults.map((result) => {
+      const hasBookingSystem = false;
+      const hasOnlinePayment = false;
       const opportunities = this.leadAnalyzer.analyze({
         website: result.website,
-        hasBookingSystem: false,
-        hasOnlinePayment: false,
+        hasBookingSystem,
+        hasOnlinePayment,
         category: dto.category,
       });
 
@@ -47,14 +72,70 @@ export class SearchLeadsUseCase {
         website: result.website,
         rating: result.rating,
         reviewCount: result.reviewCount,
+        provider: "serpapi",
+        providerPlaceId: result.providerPlaceId,
+        dedupeKey: buildLeadDedupeKey({
+          provider: "serpapi",
+          providerPlaceId: result.providerPlaceId,
+          website: result.website,
+          name: result.name,
+          address: result.address,
+          lat: result.lat,
+          lng: result.lng,
+        }),
+        hasBookingSystem,
+        hasOnlinePayment,
         opportunities,
+        leadScore: calculateLeadScore({
+          category: dto.category,
+          website: result.website,
+          hasBookingSystem,
+          hasOnlinePayment,
+          rating: result.rating,
+          reviewCount: result.reviewCount,
+          email: null,
+        }),
+        enrichmentStatus: "PENDING" as const,
+        lastSeenAt: new Date(),
         sourceQuery: `${searchLabel} near ${dto.lat},${dto.lng} r=${dto.radiusKm}km`,
         userId,
       };
     });
 
-    const leads = await this.leadRepository.createMany(leadsToCreate);
-    return leads;
+    const persisted = await this.leadRepository.upsertMany(leadsToCreate);
+    let queuedForEnrichment = 0;
+
+    if (this.leadProcessingQueue) {
+      for (const lead of persisted.leads) {
+        try {
+          const queued = await this.leadProcessingQueue.enqueuePostprocess({
+            leadId: lead.id,
+            userId,
+          });
+          if (queued) queuedForEnrichment++;
+        } catch (error) {
+          console.error("Failed to enqueue lead postprocess job", {
+            leadId: lead.id,
+            userId,
+            error,
+          });
+        }
+      }
+    }
+
+    return {
+      leads: persisted.leads,
+      meta: {
+        fetched: fetchedResults.length,
+        insideRadius: insideRadius.length,
+        dedupedInMemory: insideRadius.length - uniqueResults.length,
+        created: persisted.summary.created,
+        updated: persisted.summary.updated,
+        deduped: persisted.summary.deduped,
+        queuedForEnrichment,
+        persisted: persisted.leads.length,
+      },
+    };
   }
 }
 
@@ -85,9 +166,9 @@ function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: num
 }
 
 function onlyUniqueByBusinessKey(
-  result: { name: string; address: string; website: string | null; lat: number; lng: number },
+  result: { name: string; address: string; website: string | null; lat: number; lng: number; providerPlaceId: string | null },
   index: number,
-  all: Array<{ name: string; address: string; website: string | null; lat: number; lng: number }>
+  all: Array<{ name: string; address: string; website: string | null; lat: number; lng: number; providerPlaceId: string | null }>
 ) {
   const key = getBusinessKey(result);
   return all.findIndex((candidate) => getBusinessKey(candidate) === key) === index;
@@ -99,7 +180,10 @@ function getBusinessKey(result: {
   website: string | null;
   lat: number;
   lng: number;
+  providerPlaceId: string | null;
 }) {
+  if (result.providerPlaceId) return `provider:${result.providerPlaceId}`;
+
   const website = normalize(result.website);
   if (website) return `web:${website}`;
 
@@ -115,3 +199,4 @@ function getBusinessKey(result: {
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
+
