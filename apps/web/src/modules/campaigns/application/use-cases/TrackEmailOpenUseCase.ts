@@ -4,8 +4,7 @@ export class TrackEmailOpenUseCase {
   constructor(private readonly campaignRepository: ICampaignRepository) {}
 
   async execute(resendId: string, event: "opened" | "clicked") {
-    const jobs = await this.campaignRepository.getEmailJobsByCampaign("");
-    const job = jobs.find((j) => j.resendId === resendId);
+    const job = await this.campaignRepository.findEmailJobByResendId(resendId);
     if (!job) return;
 
     if (event === "opened") {

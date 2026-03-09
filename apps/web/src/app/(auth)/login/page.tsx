@@ -4,6 +4,10 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,76 +32,66 @@ export default function LoginPage() {
     if (result?.error) {
       setError("Email o contraseña incorrectos");
     } else {
-      router.push("/");
+      router.push("/search");
       router.refresh();
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
-      <div className="w-full max-w-md space-y-8 rounded-xl bg-white p-8 shadow-lg">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Iniciar Sesión
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-50 via-white to-gray-100 px-4">
+      <Card className="w-full max-w-md border-0 shadow-2xl">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Iniciar Sesión</CardTitle>
+          <CardDescription>
             Accede a tu cuenta de LeadRadar
-          </p>
-        </div>
+          </CardDescription>
+        </CardHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <CardContent className="space-y-4">
           {error && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="tu@email.com"
-            />
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="tu@email.com"
+              />
+            </div>
 
-          <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium text-gray-700">
-              Contraseña
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="••••••••"
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Contraseña</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="••••••••"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            {loading ? "Entrando..." : "Entrar"}
-          </button>
-        </form>
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "Entrando..." : "Entrar"}
+            </Button>
+          </form>
 
-        <p className="text-center text-sm text-muted-foreground">
-          ¿No tienes cuenta?{" "}
-          <Link href="/register" className="font-medium text-primary hover:underline">
-            Regístrate
-          </Link>
-        </p>
-      </div>
+          <p className="text-center text-sm text-muted-foreground">
+            ¿No tienes cuenta?{" "}
+            <Link href="/register" className="font-medium text-primary hover:underline">
+              Regístrate
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

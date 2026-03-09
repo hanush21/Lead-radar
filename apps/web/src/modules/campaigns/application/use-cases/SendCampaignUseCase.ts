@@ -29,7 +29,7 @@ export class SendCampaignUseCase {
 
     for (const leadId of leadIds) {
       const lead = await this.leadRepository.findById(leadId);
-      if (!lead || !lead.email) {
+      if (!lead || lead.userId !== userId || !lead.email) {
         results.push({ leadId, success: false, error: "Lead not found or no email" });
         continue;
       }

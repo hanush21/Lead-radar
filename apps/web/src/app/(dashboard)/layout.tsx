@@ -6,8 +6,7 @@ import { signOut } from "next-auth/react";
 import { Search, Users, Mail, BarChart3, LogOut } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: BarChart3 },
-  { href: "/search", label: "Buscar", icon: Search },
+  { href: "/search", label: "Dashboard", icon: BarChart3 },
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/campaigns", label: "Campañas", icon: Mail },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -21,13 +20,13 @@ export default function DashboardLayout({
   const pathname = usePathname();
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      <aside className="w-64 border-r bg-white flex flex-col">
-        <div className="flex items-center gap-2 px-6 py-5 border-b">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-sm text-white font-bold">⬡</span>
+    <div className="flex h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
+      <aside className="w-64 border-r border-border/20 bg-background/50 backdrop-blur-sm flex flex-col">
+        <div className="flex items-center gap-3 px-6 py-6 border-b border-border/20">
+          <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shadow-sm">
+            <span className="text-sm text-primary-foreground font-bold">⬡</span>
           </div>
-          <span className="text-lg font-bold text-gray-900">LeadRadar</span>
+          <span className="text-lg font-semibold text-foreground">LeadRadar</span>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -38,10 +37,10 @@ export default function DashboardLayout({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                   isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    ? "bg-primary/10 text-primary shadow-sm"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                 }`}
               >
                 <Icon className="h-4 w-4" />
@@ -51,10 +50,10 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        <div className="border-t p-3">
+        <div className="border-t border-border/20 p-3">
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+            className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-all duration-200"
           >
             <LogOut className="h-4 w-4" />
             Cerrar Sesión
@@ -62,7 +61,7 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto bg-gradient-to-br from-background/50 via-background to-background/50">
         <div className="p-8">{children}</div>
       </main>
     </div>

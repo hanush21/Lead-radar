@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Search, MapPin, Loader2 } from "lucide-react";
-import { BUSINESS_CATEGORIES, type BusinessCategoryKey } from "@/modules/leads/domain/value-objects/BusinessCategory";
+import { BUSINESS_CATEGORIES } from "@/modules/leads/domain/value-objects/BusinessCategory";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import Map from "@/components/ui/map";
 
 interface LeadResult {
   id: string;
@@ -22,12 +27,21 @@ export default function SearchPage() {
   const [results, setResults] = useState<LeadResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const handleLocationChange = useCallback((center: [number, number], radius: number) => {
+    setLng(center[0]);
+    setLat(center[1]);
+    setRadiusKm(radius);
+  }, []);
 
   const handleSearch = async () => {
     if (!category) {
-      setError("Selecciona una categoría");
+      setError("Selecciona una categoria");
       return;
     }
+
+    setHasSearched(true);
     setError("");
     setLoading(true);
 
@@ -40,144 +54,173 @@ export default function SearchPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error?.message ?? "Error en la búsqueda");
+        setError(data.error?.message ?? "Error en la busqueda");
+        setResults([]);
       } else {
-        setResults(data.data);
+        setResults(data.data ?? []);
       }
     } catch {
-      setError("Error de conexión");
+      setError("Error de conexion");
+      setResults([]);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Buscar Leads</h1>
-        <p className="text-muted-foreground mt-1">
-          Busca empresas locales por categoría y zona geográfica
+        <h1 className="text-3xl font-bold text-foreground">Buscar Leads</h1>
+        <p className="text-muted-foreground mt-2 text-lg">
+          Selecciona una zona en el mapa y busca empresas locales
         </p>
       </div>
 
-      <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Categoría</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="">Seleccionar...</option>
-              {Object.entries(BUSINESS_CATEGORIES).map(([key, cat]) => (
-                <option key={key} value={key}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Latitud</label>
-            <input
-              type="number"
-              step="0.0001"
-              value={lat}
-              onChange={(e) => setLat(parseFloat(e.target.value))}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Card className="border-0 shadow-xl">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl">Mapa de Busqueda</CardTitle>
+            <CardDescription className="text-base">
+              Haz clic en el mapa para seleccionar el centro de busqueda
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Map
+              initialCenter={[lng, lat]}
+              initialRadius={radiusKm}
+              onLocationChange={handleLocationChange}
             />
-          </div>
+          </CardContent>
+        </Card>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Longitud</label>
-            <input
-              type="number"
-              step="0.0001"
-              value={lng}
-              onChange={(e) => setLng(parseFloat(e.target.value))}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
+        <Card className="border-0 shadow-xl">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl">Parametros de Busqueda</CardTitle>
+            <CardDescription className="text-base">
+              Configura la categoria y zona para encontrar leads
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Categoria</Label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full rounded-xl border border-input/50 bg-background/50 backdrop-blur-sm px-4 py-2 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Seleccionar...</option>
+                {Object.entries(BUSINESS_CATEGORIES).map(([key, cat]) => (
+                  <option key={key} value={key}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Radio (km)</label>
-            <input
-              type="number"
-              min="0.5"
-              max="50"
-              step="0.5"
-              value={radiusKm}
-              onChange={(e) => setRadiusKm(parseFloat(e.target.value))}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Latitud</Label>
+                <Input
+                  type="number"
+                  step="0.0001"
+                  value={lat}
+                  onChange={(e) => setLat(parseFloat(e.target.value))}
+                />
+              </div>
 
-        {error && (
-          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
+              <div className="space-y-2">
+                <Label>Longitud</Label>
+                <Input
+                  type="number"
+                  step="0.0001"
+                  value={lng}
+                  onChange={(e) => setLng(parseFloat(e.target.value))}
+                />
+              </div>
+            </div>
 
-        <button
-          onClick={handleSearch}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Search className="h-4 w-4" />
-          )}
-          {loading ? "Buscando..." : "Buscar Leads"}
-        </button>
+            <div className="space-y-2">
+              <Label>Radio (km)</Label>
+              <Input
+                type="number"
+                min="0.5"
+                max="50"
+                step="0.5"
+                value={radiusKm}
+                onChange={(e) => setRadiusKm(parseFloat(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Radio actual: {radiusKm}km (~{Math.round(radiusKm * 1000)}m)
+              </p>
+            </div>
+
+            {error && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            <Button onClick={handleSearch} disabled={loading} className="w-full">
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Search className="h-4 w-4 mr-2" />
+              )}
+              {loading ? "Buscando..." : "Buscar Leads"}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
+      {hasSearched && !loading && !error && results.length === 0 && (
+        <Card className="border-0 shadow-xl">
+          <CardContent className="py-10 text-center text-muted-foreground">
+            No se encontraron negocios en el radio seleccionado. Prueba con un radio mayor o mueve el centro.
+          </CardContent>
+        </Card>
+      )}
+
       {results.length > 0 && (
-        <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b">
-            <h2 className="font-semibold text-gray-900">
-              {results.length} resultados encontrados
-            </h2>
-          </div>
-          <div className="divide-y">
+        <Card className="border-0 shadow-xl">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl">{results.length} resultados encontrados</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             {results.map((lead) => (
-              <div key={lead.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+              <div
+                key={lead.id}
+                className="p-5 border border-border/50 rounded-xl hover:bg-accent/30 transition-all duration-200"
+              >
                 <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <h3 className="font-medium text-gray-900">{lead.name}</h3>
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5" />
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-foreground text-lg">{lead.name}</h3>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <MapPin className="h-4 w-4" />
                       {lead.address}
                     </div>
-                    {lead.phone && (
-                      <p className="text-sm text-muted-foreground">{lead.phone}</p>
-                    )}
+                    {lead.phone && <p className="text-sm text-muted-foreground">{lead.phone}</p>}
                   </div>
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-col items-end gap-2">
                     {lead.rating && (
-                      <span className="text-sm font-medium text-yellow-600">
-                        ⭐ {lead.rating}
-                      </span>
+                      <span className="text-sm font-medium text-yellow-600">* {lead.rating}</span>
                     )}
                     {lead.website ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700">
+                      <span className="text-xs px-3 py-1 rounded-full bg-green-500/10 text-green-700 border border-green-500/20">
                         Con web
                       </span>
                     ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700">
+                      <span className="text-xs px-3 py-1 rounded-full bg-red-500/10 text-red-700 border border-red-500/20">
                         Sin web
                       </span>
                     )}
                   </div>
                 </div>
                 {lead.opportunities.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {lead.opportunities.map((opp, i) => (
                       <span
                         key={i}
-                        className="text-xs px-2 py-1 rounded-md bg-blue-50 text-blue-700"
+                        className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20"
                         title={opp.suggestedService}
                       >
                         {opp.label}
@@ -187,8 +230,8 @@ export default function SearchPage() {
                 )}
               </div>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

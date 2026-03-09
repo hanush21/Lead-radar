@@ -45,6 +45,12 @@ export class PrismaCampaignRepository implements ICampaignRepository {
     }) as unknown as EmailJob[];
   }
 
+  async findEmailJobByResendId(resendId: string): Promise<EmailJob | null> {
+    return prisma.emailJob.findFirst({
+      where: { resendId },
+    }) as unknown as EmailJob | null;
+  }
+
   async getCampaignStats(campaignId: string) {
     const jobs = await prisma.emailJob.findMany({ where: { campaignId } });
     return {

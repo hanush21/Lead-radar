@@ -1,0 +1,12 @@
+.git
+.gitignore
+.turbo
+node_modules
+**/node_modules
+**/.next
+**/coverage
+*.log
+apps/web/.env
+apps/web/.env.local
+architecture-extracted.txt
+

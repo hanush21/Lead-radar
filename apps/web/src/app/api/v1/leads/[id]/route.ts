@@ -5,8 +5,13 @@ import { GetLeadByIdUseCase } from "@/modules/leads/application/use-cases/GetLea
 import { toLeadResponseDto } from "@/modules/leads/application/dtos/LeadResponseDto";
 import { handleApiError } from "@/shared/errors/HttpError";
 import { UnauthorizedError } from "@/shared/errors/AppError";
+import { z } from "zod";
 
 const repo = new PrismaLeadRepository();
+
+const UpdateLeadSchema = z.object({
+  status: z.enum(["NEW", "CONTACTED", "REPLIED", "CONVERTED", "DISCARDED"]),
+});
 
 export async function GET(
   _request: NextRequest,
@@ -34,6 +39,7 @@ export async function PATCH(
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const body = await request.json();
+    const dto = UpdateLeadSchema.parse(body);
 
     const existing = await repo.findById(params.id);
     if (!existing || existing.userId !== session.user.id) {
@@ -43,7 +49,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await repo.update(params.id, body);
+    const updated = await repo.update(params.id, dto);
     return NextResponse.json({ data: toLeadResponseDto(updated) });
   } catch (error) {
     return handleApiError(error);

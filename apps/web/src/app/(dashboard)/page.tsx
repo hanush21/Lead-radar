@@ -18,7 +18,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/v1/analytics/summary")
+    fetch("/api/v1/analytics")
       .then((res) => res.json())
       .then((data) => setStats(data.data))
       .catch(console.error)

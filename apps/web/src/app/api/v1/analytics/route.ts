@@ -4,6 +4,8 @@ import { prisma } from "@/shared/lib/prisma";
 import { handleApiError } from "@/shared/errors/HttpError";
 import { UnauthorizedError } from "@/shared/errors/AppError";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const session = await auth();
@@ -17,21 +19,21 @@ export async function GET() {
         prisma.lead.groupBy({
           by: ["status"],
           where: { userId },
-          _count: true,
+          _count: { _all: true },
         }),
         prisma.campaign.count({ where: { userId } }),
         prisma.emailJob.groupBy({
           by: ["status"],
           where: { campaign: { userId } },
-          _count: true,
+          _count: { _all: true },
         }),
       ]);
 
     const statusMap: Record<string, number> = Object.fromEntries(
-      leadsByStatus.map((s: { status: string; _count: number }) => [s.status, s._count])
+      leadsByStatus.map((s) => [s.status, s._count._all])
     );
     const emailMap: Record<string, number> = Object.fromEntries(
-      emailStats.map((s: { status: string; _count: number }) => [s.status, s._count])
+      emailStats.map((s) => [s.status, s._count._all])
     );
 
     return NextResponse.json({

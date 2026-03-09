@@ -9,6 +9,7 @@ export interface ICampaignRepository {
   createEmailJob(data: { leadId: string; campaignId: string }): Promise<EmailJob>;
   updateEmailJob(id: string, data: Partial<EmailJob>): Promise<EmailJob>;
   getEmailJobsByCampaign(campaignId: string): Promise<EmailJob[]>;
+  findEmailJobByResendId(resendId: string): Promise<EmailJob | null>;
   getCampaignStats(campaignId: string): Promise<{
     total: number;
     sent: number;

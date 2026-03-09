@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: leadradar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: leadradar
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d leadradar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: leadradar-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/leadradar
+      NEXTAUTH_SECRET: change-me-in-production
+      NEXTAUTH_URL: http://localhost:3000
+      SERPAPI_API_KEY: your-serpapi-key
+      RESEND_API_KEY: your-resend-key
+      RESEND_FROM_EMAIL: noreply@yourdomain.com
+      NEXT_PUBLIC_MAPBOX_TOKEN: your-mapbox-token
+    ports:
+      - "3000:3000"
+    command: >
+      sh -c "
+      npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma &&
+      npm run start --workspace=apps/web
+      "
+
+volumes:
+  postgres_data:
+

@@ -18,7 +18,7 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/v1/analytics/summary")
+    fetch("/api/v1/analytics")
       .then((res) => res.json())
       .then((res) => setData(res.data))
       .catch(console.error)

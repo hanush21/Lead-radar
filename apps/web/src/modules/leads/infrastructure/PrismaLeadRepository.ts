@@ -11,6 +11,30 @@ function mapPrismaLead(raw: any): Lead {
 
 export class PrismaLeadRepository implements ILeadRepository {
   async create(input: CreateLeadInput): Promise<Lead> {
+    const existing = await this.findExistingLead(input);
+    if (existing) {
+      const lead = await prisma.lead.update({
+        where: { id: existing.id },
+        data: {
+          name: input.name,
+          address: input.address,
+          lat: input.lat,
+          lng: input.lng,
+          category: input.category,
+          phone: input.phone ?? existing.phone ?? null,
+          email: input.email ?? existing.email ?? null,
+          website: input.website ?? existing.website ?? null,
+          rating: input.rating ?? existing.rating ?? null,
+          reviewCount: Math.max(input.reviewCount ?? 0, existing.reviewCount ?? 0),
+          hasBookingSystem: input.hasBookingSystem ?? existing.hasBookingSystem,
+          hasOnlinePayment: input.hasOnlinePayment ?? existing.hasOnlinePayment,
+          opportunities: JSON.stringify(input.opportunities ?? existing.opportunities ?? []),
+          sourceQuery: input.sourceQuery,
+        },
+      });
+      return mapPrismaLead(lead);
+    }
+
     const lead = await prisma.lead.create({
       data: {
         ...input,
@@ -81,4 +105,44 @@ export class PrismaLeadRepository implements ILeadRepository {
   async delete(id: string): Promise<void> {
     await prisma.lead.delete({ where: { id } });
   }
+
+  private async findExistingLead(input: CreateLeadInput): Promise<Lead | null> {
+    const website = normalize(input.website);
+    if (website) {
+      const byWebsite = await prisma.lead.findFirst({
+        where: {
+          userId: input.userId,
+          website: {
+            equals: website,
+            mode: "insensitive",
+          },
+        },
+      });
+      if (byWebsite) return mapPrismaLead(byWebsite);
+    }
+
+    const name = normalize(input.name);
+    const address = normalize(input.address);
+    if (!name || !address) return null;
+
+    const byNameAndAddress = await prisma.lead.findFirst({
+      where: {
+        userId: input.userId,
+        name: {
+          equals: input.name.trim(),
+          mode: "insensitive",
+        },
+        address: {
+          equals: input.address.trim(),
+          mode: "insensitive",
+        },
+      },
+    });
+
+    return byNameAndAddress ? mapPrismaLead(byNameAndAddress) : null;
+  }
+}
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "").trim();
 }
