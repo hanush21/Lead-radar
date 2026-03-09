@@ -61,6 +61,22 @@ export class SearchLeadsUseCase {
         hasOnlinePayment,
         category: dto.category,
       });
+      const leadScore = calculateLeadScore({
+        category: dto.category,
+        website: result.website,
+        hasBookingSystem,
+        hasOnlinePayment,
+        rating: result.rating,
+        reviewCount: result.reviewCount,
+        email: null,
+      });
+      const tags = deriveLeadTags({
+        website: result.website,
+        hasBookingSystem,
+        hasOnlinePayment,
+        rating: result.rating,
+        reviewCount: result.reviewCount,
+      });
 
       return {
         name: result.name,
@@ -86,15 +102,9 @@ export class SearchLeadsUseCase {
         hasBookingSystem,
         hasOnlinePayment,
         opportunities,
-        leadScore: calculateLeadScore({
-          category: dto.category,
-          website: result.website,
-          hasBookingSystem,
-          hasOnlinePayment,
-          rating: result.rating,
-          reviewCount: result.reviewCount,
-          email: null,
-        }),
+        leadScore,
+        segment: deriveLeadSegment(leadScore),
+        tags,
         enrichmentStatus: "PENDING" as const,
         lastSeenAt: new Date(),
         sourceQuery: `${searchLabel} near ${dto.lat},${dto.lng} r=${dto.radiusKm}km`,
@@ -200,3 +210,24 @@ function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+function deriveLeadSegment(score: number): "HOT" | "WARM" | "COLD" {
+  if (score >= 70) return "HOT";
+  if (score >= 45) return "WARM";
+  return "COLD";
+}
+
+function deriveLeadTags(input: {
+  website: string | null;
+  hasBookingSystem: boolean;
+  hasOnlinePayment: boolean;
+  rating: number | null;
+  reviewCount: number;
+}) {
+  const tags: string[] = [];
+  if (!input.website) tags.push("NO_WEBSITE");
+  if (!input.hasBookingSystem) tags.push("NO_BOOKING");
+  if (!input.hasOnlinePayment) tags.push("NO_PAYMENT");
+  if (input.rating != null && input.rating < 4.0) tags.push("LOW_REVIEWS");
+  if (input.reviewCount < 20) tags.push("LOW_SOCIAL_PROOF");
+  return tags;
+}

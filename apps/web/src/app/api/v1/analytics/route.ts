@@ -13,7 +13,17 @@ export async function GET() {
 
     const userId = session.user.id;
 
-    const [totalLeads, leadsByStatus, totalCampaigns, emailStats] =
+    const [
+      totalLeads,
+      leadsByStatus,
+      totalCampaigns,
+      emailsSent,
+      emailsDelivered,
+      emailsOpened,
+      emailsClicked,
+      emailsConverted,
+      emailStats,
+    ] =
       await Promise.all([
         prisma.lead.count({ where: { userId } }),
         prisma.lead.groupBy({
@@ -22,6 +32,21 @@ export async function GET() {
           _count: { _all: true },
         }),
         prisma.campaign.count({ where: { userId } }),
+        prisma.emailJob.count({
+          where: { campaign: { userId }, sentAt: { not: null } },
+        }),
+        prisma.emailJob.count({
+          where: { campaign: { userId }, deliveredAt: { not: null } },
+        }),
+        prisma.emailJob.count({
+          where: { campaign: { userId }, openedAt: { not: null } },
+        }),
+        prisma.emailJob.count({
+          where: { campaign: { userId }, clickedAt: { not: null } },
+        }),
+        prisma.emailJob.count({
+          where: { campaign: { userId }, convertedAt: { not: null } },
+        }),
         prisma.emailJob.groupBy({
           by: ["status"],
           where: { campaign: { userId } },
@@ -41,13 +66,20 @@ export async function GET() {
         totalLeads,
         leadsByStatus: statusMap,
         totalCampaigns,
-        emailsSent: emailMap.SENT ?? 0,
-        emailsOpened: emailMap.OPENED ?? 0,
-        emailsClicked: emailMap.CLICKED ?? 0,
+        emailsSent,
+        emailsDelivered,
+        emailsOpened,
+        emailsClicked,
+        emailsConverted,
+        openRate: emailsDelivered > 0 ? (emailsOpened / emailsDelivered) * 100 : 0,
+        clickRate: emailsDelivered > 0 ? (emailsClicked / emailsDelivered) * 100 : 0,
+        ctor: emailsOpened > 0 ? (emailsClicked / emailsOpened) * 100 : 0,
+        emailConversionRate: emailsDelivered > 0 ? (emailsConverted / emailsDelivered) * 100 : 0,
         conversionRate:
           totalLeads > 0
             ? ((statusMap.CONVERTED ?? 0) / totalLeads) * 100
             : 0,
+        emailStatusMap: emailMap,
       },
     });
   } catch (error) {

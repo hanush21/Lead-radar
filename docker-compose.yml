@@ -34,7 +34,12 @@ services:
       NEXTAUTH_URL: http://localhost:3000
       SERPAPI_API_KEY: your-serpapi-key
       RESEND_API_KEY: your-resend-key
+      RESEND_WEBHOOK_SECRET: your-resend-webhook-secret
       RESEND_FROM_EMAIL: noreply@yourdomain.com
+      RESEND_REPLY_TO: hera.contactanos@gmail.com
+      AI_BASE_URL: https://api.deepseek.com/v1
+      AI_MODEL: deepseek-chat
+      AI_API_KEY: your-ai-api-key
       NEXT_PUBLIC_MAPBOX_TOKEN: your-mapbox-token
     ports:
       - "3000:3000"
@@ -56,6 +61,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@db:5432/leadradar
+      RESEND_API_KEY: your-resend-key
       WORKER_CONCURRENCY: 3
     command: >
       sh -c "

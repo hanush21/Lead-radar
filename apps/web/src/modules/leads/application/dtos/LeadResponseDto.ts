@@ -17,6 +17,8 @@ export interface LeadResponseDto {
   status: string;
   leadScore: number;
   enrichmentStatus: string;
+  segment: string;
+  tags: string[];
   lastSeenAt: string;
   opportunities: Array<{
     type: string;
@@ -46,6 +48,8 @@ export function toLeadResponseDto(lead: Lead): LeadResponseDto {
     status: lead.status,
     leadScore: lead.leadScore,
     enrichmentStatus: lead.enrichmentStatus,
+    segment: lead.segment,
+    tags: lead.tags,
     lastSeenAt: lead.lastSeenAt.toISOString(),
     opportunities: lead.opportunities,
     sourceQuery: lead.sourceQuery,

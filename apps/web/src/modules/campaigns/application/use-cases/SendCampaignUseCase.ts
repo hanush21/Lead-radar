@@ -10,14 +10,46 @@ export interface IEmailProvider {
   }): Promise<{ resendId: string }>;
 }
 
+export interface SendCampaignOptions {
+  templateId?: string;
+  useAiPersonalization?: boolean;
+}
+
+export interface ICampaignEmailComposer {
+  compose(
+    campaign: { name: string; subject: string; body: string },
+    lead: {
+      id: string;
+      name: string;
+      category: string;
+      address: string;
+      website: string | null;
+      email: string | null;
+      rating: number | null;
+      reviewCount: number;
+      hasBookingSystem: boolean;
+      hasOnlinePayment: boolean;
+      leadScore: number;
+      segment: string;
+    },
+    options: SendCampaignOptions
+  ): Promise<{ subject: string; html: string; aiPersonalized: boolean; templateId: string | null }>;
+}
+
 export class SendCampaignUseCase {
   constructor(
     private readonly campaignRepository: ICampaignRepository,
     private readonly leadRepository: ILeadRepository,
-    private readonly emailProvider: IEmailProvider
+    private readonly emailProvider: IEmailProvider,
+    private readonly emailComposer: ICampaignEmailComposer
   ) {}
 
-  async execute(campaignId: string, leadIds: string[], userId: string) {
+  async execute(
+    campaignId: string,
+    leadIds: string[],
+    userId: string,
+    options: SendCampaignOptions = {}
+  ) {
     const campaign = await this.campaignRepository.findById(campaignId);
     if (!campaign || campaign.userId !== userId) {
       throw new NotFoundError("Campaign", campaignId);
@@ -34,16 +66,21 @@ export class SendCampaignUseCase {
         continue;
       }
 
+      const composed = await this.emailComposer.compose(campaign, lead, options);
+
       const emailJob = await this.campaignRepository.createEmailJob({
         leadId,
         campaignId,
+        renderedSubject: composed.subject,
+        renderedHtml: composed.html,
+        aiPersonalized: composed.aiPersonalized,
       });
 
       try {
         const { resendId } = await this.emailProvider.sendEmail({
           to: lead.email,
-          subject: campaign.subject,
-          html: campaign.body,
+          subject: composed.subject,
+          html: composed.html,
         });
 
         await this.campaignRepository.updateEmailJob(emailJob.id, {

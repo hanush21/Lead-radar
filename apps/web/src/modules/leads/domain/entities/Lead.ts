@@ -7,6 +7,7 @@ export interface Opportunity {
 
 export type LeadStatus = "NEW" | "CONTACTED" | "REPLIED" | "CONVERTED" | "DISCARDED";
 export type EnrichmentStatus = "PENDING" | "PROCESSING" | "DONE" | "FAILED";
+export type LeadSegment = "HOT" | "WARM" | "COLD";
 
 export interface Lead {
   id: string;
@@ -28,6 +29,8 @@ export interface Lead {
   dedupeKey: string;
   leadScore: number;
   enrichmentStatus: EnrichmentStatus;
+  segment: LeadSegment;
+  tags: string[];
   lastSeenAt: Date;
   opportunities: Opportunity[];
   sourceQuery: string;
@@ -54,6 +57,8 @@ export interface CreateLeadInput {
   dedupeKey: string;
   leadScore?: number;
   enrichmentStatus?: EnrichmentStatus;
+  segment?: LeadSegment;
+  tags?: string[];
   lastSeenAt?: Date;
   opportunities?: Opportunity[];
   sourceQuery: string;

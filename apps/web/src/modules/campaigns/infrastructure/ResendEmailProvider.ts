@@ -4,12 +4,14 @@ import type { IEmailProvider } from "../application/use-cases/SendCampaignUseCas
 export class ResendEmailProvider implements IEmailProvider {
   private readonly client: Resend;
   private readonly fromEmail: string;
+  private readonly replyToEmail: string;
 
   constructor() {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) throw new Error("RESEND_API_KEY is not configured");
     this.client = new Resend(apiKey);
     this.fromEmail = process.env.RESEND_FROM_EMAIL ?? "noreply@leadradar.com";
+    this.replyToEmail = process.env.RESEND_REPLY_TO ?? "hera.contactanos@gmail.com";
   }
 
   async sendEmail(params: {
@@ -22,6 +24,7 @@ export class ResendEmailProvider implements IEmailProvider {
       to: params.to,
       subject: params.subject,
       html: params.html,
+      replyTo: this.replyToEmail,
     });
 
     if (error || !data) {

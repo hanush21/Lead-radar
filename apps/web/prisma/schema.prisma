@@ -67,6 +67,8 @@ model Lead {
   dedupeKey        String
   leadScore        Int        @default(0)
   enrichmentStatus EnrichmentStatus @default(PENDING)
+  segment          LeadSegment @default(WARM)
+  tags             Json       @default("[]")
   lastSeenAt       DateTime   @default(now())
   sourceQuery      String
   userId           String
@@ -79,6 +81,7 @@ model Lead {
   @@index([category, status])
   @@index([userId])
   @@index([userId, leadScore])
+  @@index([userId, segment])
   @@unique([userId, dedupeKey])
   @@unique([userId, provider, providerPlaceId])
 }
@@ -104,17 +107,69 @@ model EmailJob {
   leadId     String
   campaignId String
   status     EmailStatus @default(QUEUED)
+  provider   String      @default("resend")
   resendId   String?
   openedAt   DateTime?
   clickedAt  DateTime?
   sentAt     DateTime?
+  deliveredAt DateTime?
+  bouncedAt  DateTime?
+  complainedAt DateTime?
+  unsubscribedAt DateTime?
+  convertedAt DateTime?
+  conversionSource String?
+  renderedSubject String?
+  renderedHtml String?
+  aiPersonalized Boolean @default(false)
+  lastSyncedAt DateTime?
   createdAt  DateTime    @default(now())
   campaign   Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   lead       Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  emailEvents EmailEvent[]
 
   @@index([leadId])
   @@index([campaignId])
   @@index([status])
+  @@index([resendId])
+  @@index([convertedAt])
+}
+
+model CampaignTemplate {
+  id                 String   @id @default(cuid())
+  slug               String   @unique
+  name               String
+  category           String
+  isDefault          Boolean  @default(true)
+  isActive           Boolean  @default(true)
+  subjectTemplate    String
+  headlineTemplate   String
+  introTemplate      String
+  bodyTemplate       String
+  ctaLabelTemplate   String
+  ctaUrlTemplate     String
+  signatureTemplate  String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([category, isDefault])
+  @@index([isActive])
+}
+
+model EmailEvent {
+  id              String         @id @default(cuid())
+  emailJobId      String
+  provider        String         @default("resend")
+  providerEventId String         @unique
+  resendId        String?
+  eventType       EmailEventType
+  occurredAt      DateTime
+  payload         Json
+  createdAt       DateTime       @default(now())
+  emailJob        EmailJob       @relation(fields: [emailJobId], references: [id], onDelete: Cascade)
+
+  @@index([emailJobId])
+  @@index([eventType])
+  @@index([resendId])
 }
 
 enum LeadStatus {
@@ -135,9 +190,12 @@ enum CampaignStatus {
 enum EmailStatus {
   QUEUED
   SENT
+  DELIVERED
   OPENED
   CLICKED
   BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
   FAILED
 }
 
@@ -146,4 +204,20 @@ enum EnrichmentStatus {
   PROCESSING
   DONE
   FAILED
+}
+
+enum LeadSegment {
+  HOT
+  WARM
+  COLD
+}
+
+enum EmailEventType {
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
 }

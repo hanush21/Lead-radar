@@ -8,8 +8,14 @@ interface AnalyticsData {
   leadsByStatus: Record<string, number>;
   totalCampaigns: number;
   emailsSent: number;
+  emailsDelivered: number;
   emailsOpened: number;
   emailsClicked: number;
+  emailsConverted: number;
+  openRate: number;
+  clickRate: number;
+  ctor: number;
+  emailConversionRate: number;
   conversionRate: number;
 }
 
@@ -35,8 +41,8 @@ export default function AnalyticsPage() {
 
   if (!data) return null;
 
-  const openRate = data.emailsSent > 0 ? ((data.emailsOpened / data.emailsSent) * 100).toFixed(1) : "0";
-  const clickRate = data.emailsOpened > 0 ? ((data.emailsClicked / data.emailsOpened) * 100).toFixed(1) : "0";
+  const openRate = data.openRate.toFixed(1);
+  const clickRate = data.clickRate.toFixed(1);
 
   return (
     <div className="space-y-8">
@@ -71,12 +77,24 @@ export default function AnalyticsPage() {
           <p className="text-sm text-muted-foreground">emails enviados</p>
           <div className="mt-4 space-y-2">
             <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Entregados</span>
+              <span className="font-medium text-emerald-600">{data.emailsDelivered}</span>
+            </div>
+            <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Tasa apertura</span>
               <span className="font-medium text-green-600">{openRate}%</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Tasa clicks</span>
               <span className="font-medium text-purple-600">{clickRate}%</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">CTOR</span>
+              <span className="font-medium text-indigo-600">{data.ctor.toFixed(1)}%</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Conv. email</span>
+              <span className="font-medium text-blue-700">{data.emailConversionRate.toFixed(1)}%</span>
             </div>
           </div>
         </div>

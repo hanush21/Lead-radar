@@ -1,8 +1,12 @@
 const PgBoss = require("pg-boss");
 const { PrismaClient } = require("@prisma/client");
+const { Resend } = require("resend");
 
 const LEAD_POSTPROCESS_JOB = "lead.postprocess";
 const LEAD_RECHECK_JOB = "lead.recheck";
+const CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB = "campaign.reconcile-email-events";
+const CAMPAIGN_RECONCILE_CONVERSIONS_JOB = "campaign.reconcile-conversions";
+
 const BOOKING_CATEGORIES = new Set([
   "BARBERSHOP",
   "HAIR_SALON",
@@ -13,9 +17,33 @@ const BOOKING_CATEGORIES = new Set([
   "BEAUTY_SALON",
 ]);
 
+const EVENT_TO_STATUS = {
+  SENT: "SENT",
+  DELIVERED: "DELIVERED",
+  OPENED: "OPENED",
+  CLICKED: "CLICKED",
+  BOUNCED: "BOUNCED",
+  COMPLAINED: "COMPLAINED",
+  UNSUBSCRIBED: "UNSUBSCRIBED",
+};
+
+const STATUS_PRIORITY = {
+  QUEUED: 0,
+  SENT: 1,
+  DELIVERED: 2,
+  OPENED: 3,
+  CLICKED: 4,
+  BOUNCED: 5,
+  COMPLAINED: 6,
+  UNSUBSCRIBED: 7,
+  FAILED: 8,
+};
+
 const prisma = new PrismaClient();
 const onceMode = process.argv.includes("--once") || process.env.WORKER_ONCE === "true";
 const concurrency = Number(process.env.WORKER_CONCURRENCY || "3");
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
 let processedJobs = 0;
 let shuttingDown = false;
 let boss = null;
@@ -72,6 +100,25 @@ function analyzeLeadOpportunities(lead) {
   return opportunities;
 }
 
+function deriveLeadSegment(score) {
+  if (score >= 70) return "HOT";
+  if (score >= 45) return "WARM";
+  return "COLD";
+}
+
+function deriveLeadTags(lead, opportunities) {
+  const tags = new Set();
+  if (!lead.website) tags.add("NO_WEBSITE");
+  if (!lead.hasBookingSystem) tags.add("NO_BOOKING");
+  if (!lead.hasOnlinePayment) tags.add("NO_PAYMENT");
+  if (lead.rating != null && lead.rating < 4) tags.add("LOW_REVIEWS");
+  if (lead.reviewCount < 20) tags.add("LOW_SOCIAL_PROOF");
+  for (const opportunity of opportunities) {
+    if (typeof opportunity?.type === "string" && opportunity.type.length > 0) tags.add(opportunity.type);
+  }
+  return [...tags];
+}
+
 async function processLead(leadId, userId, jobName, jobId) {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
@@ -89,46 +136,233 @@ async function processLead(leadId, userId, jobName, jobId) {
 
   const opportunities = analyzeLeadOpportunities(lead);
   const leadScore = calculateLeadScore(lead);
+  const segment = deriveLeadSegment(leadScore);
+  const tags = deriveLeadTags(lead, opportunities);
 
   await prisma.lead.update({
     where: { id: leadId },
     data: {
       opportunities,
       leadScore,
+      segment,
+      tags,
       enrichmentStatus: "DONE",
       lastSeenAt: new Date(),
     },
   });
 }
 
-async function handleJob(job, jobName) {
+function mapReconciledEvent(lastEvent) {
+  const normalized = String(lastEvent || "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("unsubscribe")) return "UNSUBSCRIBED";
+  if (normalized.includes("complain")) return "COMPLAINED";
+  if (normalized.includes("bounce")) return "BOUNCED";
+  if (normalized.includes("click")) return "CLICKED";
+  if (normalized.includes("open")) return "OPENED";
+  if (normalized.includes("deliver")) return "DELIVERED";
+  if (normalized.includes("send")) return "SENT";
+  return null;
+}
+
+async function applyEmailEvent({ emailJobId, providerEventId, resendId, eventType, occurredAt, payload }) {
+  await prisma.$transaction(async (tx) => {
+    try {
+      await tx.emailEvent.create({
+        data: {
+          emailJobId,
+          provider: "resend",
+          providerEventId,
+          resendId,
+          eventType,
+          occurredAt,
+          payload,
+        },
+      });
+    } catch (error) {
+      if (error?.code === "P2002") return;
+      throw error;
+    }
+
+    const current = await tx.emailJob.findUnique({ where: { id: emailJobId } });
+    if (!current) return;
+
+    const eventStatus = EVENT_TO_STATUS[eventType];
+    const nextStatus =
+      STATUS_PRIORITY[eventStatus] >= STATUS_PRIORITY[current.status] ? eventStatus : current.status;
+
+    const patch = {
+      status: nextStatus,
+      lastSyncedAt: new Date(),
+    };
+
+    if (eventType === "SENT" && !current.sentAt) patch.sentAt = occurredAt;
+    if (eventType === "DELIVERED" && !current.deliveredAt) patch.deliveredAt = occurredAt;
+    if (eventType === "OPENED" && !current.openedAt) patch.openedAt = occurredAt;
+    if (eventType === "CLICKED" && !current.clickedAt) patch.clickedAt = occurredAt;
+    if (eventType === "BOUNCED" && !current.bouncedAt) patch.bouncedAt = occurredAt;
+    if (eventType === "COMPLAINED" && !current.complainedAt) patch.complainedAt = occurredAt;
+    if (eventType === "UNSUBSCRIBED" && !current.unsubscribedAt) patch.unsubscribedAt = occurredAt;
+
+    await tx.emailJob.update({
+      where: { id: emailJobId },
+      data: patch,
+    });
+  });
+}
+
+async function reconcileEmailEvents(jobId) {
+  if (!resendClient) {
+    console.warn("[worker] reconcile skipped, RESEND_API_KEY missing", { jobId });
+    return { scanned: 0, updated: 0 };
+  }
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const jobs = await prisma.emailJob.findMany({
+    where: {
+      resendId: { not: null },
+      sentAt: { not: null, gte: thirtyDaysAgo },
+      status: { in: ["SENT", "DELIVERED", "OPENED", "CLICKED"] },
+    },
+    orderBy: { sentAt: "desc" },
+    take: 300,
+  });
+
+  let updated = 0;
+
+  for (const emailJob of jobs) {
+    if (!emailJob.resendId) continue;
+    try {
+      const result = await resendClient.emails.get(emailJob.resendId);
+      const payload = result?.data;
+      const mapped = mapReconciledEvent(payload?.last_event);
+      if (!mapped) continue;
+
+      const providerEventId = `${emailJob.resendId}:reconcile:${mapped}`;
+      await applyEmailEvent({
+        emailJobId: emailJob.id,
+        providerEventId,
+        resendId: emailJob.resendId,
+        eventType: mapped,
+        occurredAt: new Date(payload?.last_event_at || payload?.created_at || Date.now()),
+        payload: payload || { source: "reconcile" },
+      });
+      updated += 1;
+    } catch (error) {
+      console.error("[worker] reconcile email failed", {
+        jobId,
+        emailJobId: emailJob.id,
+        resendId: emailJob.resendId,
+        error,
+      });
+    }
+  }
+
+  return { scanned: jobs.length, updated };
+}
+
+async function reconcileConversions(jobId) {
+  const convertedLeads = await prisma.lead.findMany({
+    where: { status: "CONVERTED" },
+    select: { id: true, updatedAt: true },
+    take: 500,
+  });
+
+  let attributed = 0;
+
+  for (const lead of convertedLeads) {
+    const hasAttribution = await prisma.emailJob.findFirst({
+      where: { leadId: lead.id, convertedAt: { not: null } },
+      select: { id: true },
+    });
+    if (hasAttribution) continue;
+
+    const convertedAt = lead.updatedAt;
+    const lowerBound = new Date(convertedAt.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const candidate = await prisma.emailJob.findFirst({
+      where: {
+        leadId: lead.id,
+        sentAt: { not: null, lte: convertedAt, gte: lowerBound },
+      },
+      orderBy: { sentAt: "asc" },
+    });
+
+    if (!candidate) continue;
+
+    await prisma.emailJob.update({
+      where: { id: candidate.id },
+      data: {
+        convertedAt,
+        conversionSource: "LEAD_STATUS",
+        lastSyncedAt: new Date(),
+      },
+    });
+    attributed += 1;
+  }
+
+  console.info("[worker] conversion reconciliation", {
+    jobId,
+    leadsScanned: convertedLeads.length,
+    attributed,
+  });
+
+  return { leadsScanned: convertedLeads.length, attributed };
+}
+
+async function handleLeadJob(job, jobName) {
   const payload = job?.data || {};
   const leadId = payload.leadId;
   const userId = payload.userId;
   const jobId = job?.id;
 
   if (!leadId || !userId) {
-    console.warn("[worker] invalid job payload", { jobId, jobName, payload });
+    console.warn("[worker] invalid lead payload", { jobId, jobName, payload });
     return;
   }
 
-  console.info("[worker] processing", { jobId, jobName, leadId, userId });
+  console.info("[worker] processing lead", { jobId, jobName, leadId, userId });
 
   try {
     await processLead(leadId, userId, jobName, jobId);
     processedJobs += 1;
-    console.info("[worker] done", { jobId, jobName, leadId, userId });
+    console.info("[worker] lead done", { jobId, jobName, leadId, userId });
 
     if (onceMode && processedJobs >= 1) {
       setTimeout(() => shutdown(0), 50);
     }
   } catch (error) {
-    await prisma.lead.update({
-      where: { id: leadId },
-      data: { enrichmentStatus: "FAILED" },
-    }).catch(() => {});
+    await prisma.lead
+      .update({
+        where: { id: leadId },
+        data: { enrichmentStatus: "FAILED" },
+      })
+      .catch(() => {});
 
-    console.error("[worker] failed", { jobId, jobName, leadId, userId, error });
+    console.error("[worker] lead failed", { jobId, jobName, leadId, userId, error });
+    throw error;
+  }
+}
+
+async function handleCampaignReconcileJob(job, jobName) {
+  const jobId = job?.id;
+  console.info("[worker] processing campaign reconcile", { jobId, jobName });
+
+  try {
+    if (jobName === CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB) {
+      const result = await reconcileEmailEvents(jobId);
+      console.info("[worker] campaign reconcile email done", { jobId, ...result });
+    } else if (jobName === CAMPAIGN_RECONCILE_CONVERSIONS_JOB) {
+      const result = await reconcileConversions(jobId);
+      console.info("[worker] campaign reconcile conversion done", { jobId, ...result });
+    }
+
+    processedJobs += 1;
+    if (onceMode && processedJobs >= 1) {
+      setTimeout(() => shutdown(0), 50);
+    }
+  } catch (error) {
+    console.error("[worker] campaign reconcile failed", { jobId, jobName, error });
     throw error;
   }
 }
@@ -147,6 +381,15 @@ async function shutdown(code = 0) {
   }
 }
 
+async function ensureSchedules() {
+  try {
+    await boss.schedule(CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB, "0 */6 * * *");
+    await boss.schedule(CAMPAIGN_RECONCILE_CONVERSIONS_JOB, "10 */6 * * *");
+  } catch (error) {
+    console.error("[worker] failed to schedule recurring jobs", error);
+  }
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required");
@@ -156,10 +399,19 @@ async function main() {
   await boss.start();
   await boss.createQueue(LEAD_POSTPROCESS_JOB);
   await boss.createQueue(LEAD_RECHECK_JOB);
+  await boss.createQueue(CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB);
+  await boss.createQueue(CAMPAIGN_RECONCILE_CONVERSIONS_JOB);
+  await ensureSchedules();
 
   for (let i = 0; i < concurrency; i += 1) {
-    await boss.work(LEAD_POSTPROCESS_JOB, (job) => handleJob(job, LEAD_POSTPROCESS_JOB));
-    await boss.work(LEAD_RECHECK_JOB, (job) => handleJob(job, LEAD_RECHECK_JOB));
+    await boss.work(LEAD_POSTPROCESS_JOB, (job) => handleLeadJob(job, LEAD_POSTPROCESS_JOB));
+    await boss.work(LEAD_RECHECK_JOB, (job) => handleLeadJob(job, LEAD_RECHECK_JOB));
+    await boss.work(CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB, (job) =>
+      handleCampaignReconcileJob(job, CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB)
+    );
+    await boss.work(CAMPAIGN_RECONCILE_CONVERSIONS_JOB, (job) =>
+      handleCampaignReconcileJob(job, CAMPAIGN_RECONCILE_CONVERSIONS_JOB)
+    );
   }
 
   console.info("[worker] started", { concurrency, onceMode });
@@ -176,4 +428,3 @@ main().catch((error) => {
   console.error("[worker] startup failed", error);
   shutdown(1);
 });
-

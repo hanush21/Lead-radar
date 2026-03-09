@@ -14,6 +14,14 @@ Se implemento un hardening de captacion sin romper la API actual:
 - Rate limit activo en busquedas.
 - Trazabilidad con contadores operativos en `meta` y logs.
 
+Tambien se implemento hardening de campanas:
+
+- Tracking robusto de eventos Resend por webhook firmado (`svix`) con deduplicacion.
+- Reconciliacion automatica cada 6h (eventos de email + conversiones por estado `CONVERTED`).
+- Plantillas profesionales por categoria (`CampaignTemplate`) y personalizacion IA por lead.
+- Soporte de `Reply-To` configurable (`RESEND_REPLY_TO`) para centralizar respuestas de prospectos.
+- Analitica de campanas con funnel y tasas (`openRate`, `clickRate`, `ctor`, `conversionRate`).
+
 ## Stack
 
 - Next.js 14 (App Router)
@@ -45,6 +53,12 @@ leadradar/
   - `meta` extendido: `fetched`, `insideRadius`, `dedupedInMemory`, `created`, `updated`, `deduped`, `queuedForEnrichment`, `persisted`, `total`.
 - `GET /api/v1/leads`
   - Orden por `leadScore desc, createdAt desc`.
+- `POST /api/v1/webhooks/resend`
+  - Ingesta segura de eventos de email (`sent`, `delivered`, `opened`, `clicked`, `bounced`, `complained`, `unsubscribed`).
+- `GET /api/v1/campaigns/templates`
+  - Catalogo de plantillas activas por categoria.
+- `GET /api/v1/campaigns/[id]/stats`
+  - Totales compatibles + metricas avanzadas y tasas.
 
 ## Modelo Lead (campos nuevos)
 
@@ -53,6 +67,8 @@ leadradar/
 - `dedupeKey` (unico por usuario)
 - `leadScore` (default `0`)
 - `enrichmentStatus` (`PENDING | PROCESSING | DONE | FAILED`)
+- `segment` (`HOT | WARM | COLD`)
+- `tags` (json de etiquetas operativas)
 - `lastSeenAt`
 
 Unicidad garantizada en DB:
@@ -71,13 +87,19 @@ Requeridas:
 - `NEXTAUTH_URL`
 - `SERPAPI_API_KEY`
 - `RESEND_API_KEY`
+- `RESEND_WEBHOOK_SECRET`
 - `RESEND_FROM_EMAIL`
+- `RESEND_REPLY_TO`
+- `AI_BASE_URL`
+- `AI_MODEL`
+- `AI_API_KEY`
 - `NEXT_PUBLIC_MAPBOX_TOKEN`
 
 Opcionales del worker:
 
 - `WORKER_CONCURRENCY` (default `3`)
 - `WORKER_ONCE=true` para ejecucion unica
+- `AI_TIMEOUT_MS` (default `8000`)
 
 ## Migraciones y backfill (importante en entornos con datos)
 
@@ -129,6 +151,9 @@ Desde `apps/web`:
 - `db` (PostgreSQL)
 - `web` (Next.js)
 - `worker` (procesador de jobs `lead.postprocess` y `lead.recheck`)
+- `worker` tambien reconcilia campanas:
+  - `campaign.reconcile-email-events` (cada 6h)
+  - `campaign.reconcile-conversions` (cada 6h)
 
 Arranque:
 

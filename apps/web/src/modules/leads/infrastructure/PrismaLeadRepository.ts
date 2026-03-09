@@ -8,6 +8,7 @@ function mapPrismaLead(raw: any): Lead {
   return {
     ...raw,
     opportunities: Array.isArray(raw.opportunities) ? raw.opportunities : JSON.parse(raw.opportunities ?? "[]"),
+    tags: Array.isArray(raw.tags) ? raw.tags : JSON.parse(raw.tags ?? "[]"),
   };
 }
 
@@ -157,6 +158,8 @@ export class PrismaLeadRepository implements ILeadRepository {
       dedupeKey,
       leadScore: input.leadScore ?? 0,
       enrichmentStatus: input.enrichmentStatus ?? "PENDING",
+      segment: input.segment ?? "WARM",
+      tags: this.toPrismaJson(input.tags ?? []),
       sourceQuery: input.sourceQuery,
       userId: input.userId,
       lastSeenAt: input.lastSeenAt ?? new Date(),
@@ -183,6 +186,8 @@ export class PrismaLeadRepository implements ILeadRepository {
       dedupeKey,
       leadScore: input.leadScore ?? existing?.leadScore ?? 0,
       enrichmentStatus: input.enrichmentStatus ?? existing?.enrichmentStatus ?? "PENDING",
+      segment: input.segment ?? existing?.segment ?? "WARM",
+      tags: this.toPrismaJson(input.tags ?? existing?.tags ?? []),
       sourceQuery: input.sourceQuery,
       lastSeenAt: input.lastSeenAt ?? new Date(),
     };
