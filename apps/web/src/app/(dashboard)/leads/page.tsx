@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Users, MapPin, ExternalLink } from "lucide-react";
 
@@ -26,11 +26,17 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   DISCARDED: { label: "Descartado", color: "bg-gray-50 text-gray-500" },
 };
 
+function hasText(value: string | null | undefined) {
+  return Boolean(value && value.trim().length > 0);
+}
+
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+
+  const leadsWithEmail = useMemo(() => leads.filter((lead) => hasText(lead.email)).length, [leads]);
 
   useEffect(() => {
     setLoading(true);
@@ -49,9 +55,12 @@ export default function LeadsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
-          <p className="text-muted-foreground mt-1">
-            {total} leads en tu base de datos
-          </p>
+          <p className="text-muted-foreground mt-1">{total} leads en tu base de datos</p>
+          {!loading && leads.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              En esta pagina: con email {leadsWithEmail} | sin email {Math.max(0, leads.length - leadsWithEmail)}
+            </p>
+          )}
         </div>
         <Link
           href="/search"
@@ -69,10 +78,8 @@ export default function LeadsPage() {
       ) : leads.length === 0 ? (
         <div className="text-center py-12 rounded-xl border bg-white">
           <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <h3 className="font-medium text-gray-900">No hay leads aún</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            Empieza buscando empresas en la sección de búsqueda
-          </p>
+          <h3 className="font-medium text-gray-900">No hay leads aun</h3>
+          <p className="text-sm text-muted-foreground mt-1">Empieza buscando empresas en la seccion de busqueda</p>
         </div>
       ) : (
         <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
@@ -89,6 +96,9 @@ export default function LeadsPage() {
             <tbody className="divide-y">
               {leads.map((lead) => {
                 const status = statusLabels[lead.status] ?? statusLabels.NEW;
+                const hasEmail = hasText(lead.email);
+                const hasPhone = hasText(lead.phone);
+
                 return (
                   <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
@@ -99,8 +109,12 @@ export default function LeadsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-gray-700">{lead.email ?? "—"}</div>
-                      <div className="text-xs text-muted-foreground">{lead.phone ?? ""}</div>
+                      <div className={`text-xs ${hasEmail ? "text-emerald-700" : "text-red-600"}`}>
+                        Email: {hasEmail ? lead.email : "Sin email"}
+                      </div>
+                      <div className={`text-xs ${hasPhone ? "text-gray-600" : "text-amber-700"}`}>
+                        Telefono: {hasPhone ? lead.phone : "Sin telefono"}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${status.color}`}>
@@ -115,9 +129,7 @@ export default function LeadsPage() {
                           </span>
                         ))}
                         {lead.opportunities.length > 2 && (
-                          <span className="text-xs text-muted-foreground">
-                            +{lead.opportunities.length - 2}
-                          </span>
+                          <span className="text-xs text-muted-foreground">+{lead.opportunities.length - 2}</span>
                         )}
                       </div>
                     </td>
@@ -145,7 +157,7 @@ export default function LeadsPage() {
                 Anterior
               </button>
               <span className="text-sm text-muted-foreground">
-                Página {page} de {Math.ceil(total / 20)}
+                Pagina {page} de {Math.ceil(total / 20)}
               </span>
               <button
                 onClick={() => setPage((p) => p + 1)}

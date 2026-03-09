@@ -26,6 +26,10 @@ interface LeadDetail {
   createdAt: string;
 }
 
+function hasText(value: string | null | undefined) {
+  return Boolean(value && value.trim().length > 0);
+}
+
 export default function LeadDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -77,27 +81,29 @@ export default function LeadDetailPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-6">
-              {lead.phone && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  {lead.phone}
-                </div>
-              )}
-              {lead.email && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  {lead.email}
-                </div>
-              )}
-              {lead.website && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+              <div className="flex items-center gap-2 text-sm">
+                <Phone className="h-4 w-4 text-muted-foreground" />
+                <span className={hasText(lead.phone) ? "text-gray-700" : "text-amber-700"}>
+                  Telefono: {hasText(lead.phone) ? lead.phone : "Sin telefono"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                <span className={hasText(lead.email) ? "text-emerald-700" : "text-red-600"}>
+                  Email: {hasText(lead.email) ? lead.email : "Sin email"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-sm md:col-span-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                {lead.website ? (
                   <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                     {lead.website}
                   </a>
-                </div>
-              )}
+                ) : (
+                  <span className="text-muted-foreground">Sin website</span>
+                )}
+              </div>
             </div>
           </div>
 

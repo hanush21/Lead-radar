@@ -5,9 +5,11 @@ import { prisma } from "@/shared/lib/prisma";
 import { handleApiError } from "@/shared/errors/HttpError";
 import { UnauthorizedError } from "@/shared/errors/AppError";
 import { PgBossLeadProcessingQueue } from "@/modules/leads/infrastructure/queue/LeadProcessingQueue";
+import { randomUUID } from "crypto";
 
 const EnrichEmailsSchema = z.object({
   category: z.string().min(1).optional(),
+  allCategories: z.boolean().default(false),
   limit: z.number().int().min(1).max(1000).default(300),
 });
 
@@ -18,10 +20,17 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const dto = EnrichEmailsSchema.parse(body);
+    const scope: "ALL" | "CATEGORY" = dto.allCategories ? "ALL" : "CATEGORY";
+    if (scope === "CATEGORY" && !dto.category) {
+      return NextResponse.json(
+        { error: { code: "BAD_REQUEST", message: "category is required for CATEGORY scope" } },
+        { status: 400 }
+      );
+    }
 
     const where = {
       userId: session.user.id,
-      ...(dto.category ? { category: dto.category } : {}),
+      ...(scope === "CATEGORY" && dto.category ? { category: dto.category } : {}),
       OR: [{ email: null }, { email: "" }, { email: " " }],
       website: { not: null },
       NOT: [{ website: "" }, { website: " " }],
@@ -34,20 +43,74 @@ export async function POST(request: NextRequest) {
       orderBy: [{ leadScore: "desc" }, { createdAt: "desc" }],
     });
 
+    if (leads.length === 0) {
+      return NextResponse.json({
+        data: {
+          batchId: null,
+          scope,
+          category: scope === "CATEGORY" ? dto.category ?? null : null,
+          candidates: 0,
+          queued: 0,
+          skipped: 0,
+        },
+      });
+    }
+
+    const batchId = randomUUID();
+
     const queue = new PgBossLeadProcessingQueue();
     let queued = 0;
+    const queuedIds: string[] = [];
+    const now = new Date();
+
+    if (leads.length > 0) {
+      await prisma.lead.updateMany({
+        where: {
+          userId: session.user.id,
+          id: { in: leads.map((lead) => lead.id) },
+        },
+        data: {
+          enrichmentBatchId: batchId,
+          enrichmentRequestedAt: now,
+          enrichmentCompletedAt: null,
+          enrichmentStatus: "PENDING",
+        },
+      });
+    }
 
     for (const lead of leads) {
       const ok = await queue.enqueueRecheck({
         leadId: lead.id,
         userId: session.user.id,
+        batchId,
       });
-      if (ok) queued += 1;
+      if (ok) {
+        queued += 1;
+        queuedIds.push(lead.id);
+      }
+    }
+
+    if (queued < leads.length) {
+      const skippedIds = leads.map((lead) => lead.id).filter((id) => !queuedIds.includes(id));
+      if (skippedIds.length > 0) {
+        await prisma.lead.updateMany({
+          where: {
+            userId: session.user.id,
+            id: { in: skippedIds },
+          },
+          data: {
+            enrichmentStatus: "FAILED",
+            enrichmentCompletedAt: new Date(),
+          },
+        });
+      }
     }
 
     return NextResponse.json({
       data: {
-        category: dto.category ?? null,
+        batchId,
+        scope,
+        category: scope === "CATEGORY" ? dto.category ?? null : null,
         candidates: leads.length,
         queued,
         skipped: Math.max(0, leads.length - queued),

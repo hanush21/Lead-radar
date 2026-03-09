@@ -1,86 +1,29 @@
 # LeadRadar
 
-LeadRadar es una plataforma de captacion de leads locales construida con Next.js, Prisma y PostgreSQL.  
-Incluye autenticacion, busqueda geolocalizada, gestion de leads/campanas y enriquecimiento asincrono.
-
-## Estado actual (Hardening v1)
-
-Se implemento un hardening de captacion sin romper la API actual:
-
-- `POST /api/v1/search` sigue devolviendo leads en la respuesta inmediata.
-- Dedupe reforzado en base de datos con claves unicas por usuario.
-- Pipeline interno asincrono con cola (`pg-boss`) y worker separado.
-- Scoring de leads (0-100) y priorizacion por score.
-- Rate limit activo en busquedas.
-- Trazabilidad con contadores operativos en `meta` y logs.
-
-Tambien se implemento hardening de campanas:
-
-- Tracking robusto de eventos Resend por webhook firmado (`svix`) con deduplicacion.
-- Reconciliacion automatica cada 6h (eventos de email + conversiones por estado `CONVERTED`).
-- Plantillas profesionales por categoria (`CampaignTemplate`) y personalizacion IA por lead.
-- Soporte de `Reply-To` configurable (`RESEND_REPLY_TO`) para centralizar respuestas de prospectos.
-- Analitica de campanas con funnel y tasas (`openRate`, `clickRate`, `ctor`, `conversionRate`).
+LeadRadar es una plataforma para captacion de leads locales con Next.js, Prisma y PostgreSQL.
+Incluye busqueda geolocalizada, deduplicacion, scoring, campanas de email, plantillas por categoria, IA por lead y procesamiento asincrono con worker.
 
 ## Stack
 
-- Next.js 14 (App Router)
-- React 18 + TypeScript
+- Next.js 14 (App Router) + React 18 + TypeScript
 - Prisma + PostgreSQL
 - NextAuth v5
 - pg-boss (cola sobre PostgreSQL)
+- Resend (envio/tracking de emails)
 - Tailwind CSS
-- Vitest + ESLint + TypeScript
 - Turborepo
 
-## Estructura
+## Requisitos
 
-```text
-leadradar/
-  apps/
-    web/
-      prisma/
-      scripts/
-      src/
-  Dockerfile
-  docker-compose.yml
-```
-
-## API relevante
-
-- `POST /api/v1/search`
-  - Respuesta compatible (`data` con leads).
-  - `meta` extendido: `fetched`, `insideRadius`, `dedupedInMemory`, `created`, `updated`, `deduped`, `queuedForEnrichment`, `persisted`, `total`.
-- `GET /api/v1/leads`
-  - Orden por `leadScore desc, createdAt desc`.
-- `POST /api/v1/webhooks/resend`
-  - Ingesta segura de eventos de email (`sent`, `delivered`, `opened`, `clicked`, `bounced`, `complained`, `unsubscribed`).
-- `GET /api/v1/campaigns/templates`
-  - Catalogo de plantillas activas por categoria.
-- `GET /api/v1/campaigns/[id]/stats`
-  - Totales compatibles + metricas avanzadas y tasas.
-
-## Modelo Lead (campos nuevos)
-
-- `provider` (default `serpapi`)
-- `providerPlaceId` (nullable)
-- `dedupeKey` (unico por usuario)
-- `leadScore` (default `0`)
-- `enrichmentStatus` (`PENDING | PROCESSING | DONE | FAILED`)
-- `segment` (`HOT | WARM | COLD`)
-- `tags` (json de etiquetas operativas)
-- `lastSeenAt`
-
-Unicidad garantizada en DB:
-
-- `@@unique([userId, dedupeKey])`
-- `@@unique([userId, provider, providerPlaceId])`
+- Node.js 18+ (recomendado 22)
+- npm 9+
+- PostgreSQL
 
 ## Variables de entorno
 
-Crear `apps/web/.env.local` desde `apps/web/.env.example`.
+Crear `apps/web/.env.local` usando `apps/web/.env.example`.
 
-Requeridas:
+Variables principales:
 
 - `DATABASE_URL`
 - `NEXTAUTH_SECRET`
@@ -95,70 +38,157 @@ Requeridas:
 - `AI_API_KEY`
 - `NEXT_PUBLIC_MAPBOX_TOKEN`
 
-Opcionales del worker:
+Variables operativas recomendadas (evitan saturar conexiones):
 
-- `WORKER_CONCURRENCY` (default `3`)
-- `WORKER_ONCE=true` para ejecucion unica
-- `AI_TIMEOUT_MS` (default `8000`)
+- `PGBOSS_MAX_CONNECTIONS=1`
+- `WORKER_PGBOSS_MAX_CONNECTIONS=2`
+- `WORKER_CONCURRENCY=1`
+- `PRISMA_LOG_QUERIES=false`
 
-## Migraciones y backfill (importante en entornos con datos)
+## Arranque local (recomendado)
 
-El hardening usa migracion en 2 pasos para no romper historicos:
-
-1. Aplicar step1:
-```bash
-npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma
-```
-
-2. Ejecutar backfill:
-```bash
-npm run leads:backfill-dedupe --workspace=apps/web
-```
-
-3. Aplicar step2 (constraints unicos finales):
-```bash
-npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma
-```
-
-## Desarrollo local
+1. Instalar dependencias:
 
 ```bash
 npm install
+```
+
+2. Generar cliente Prisma:
+
+```bash
 npm run db:generate --workspace=apps/web
+```
+
+3. Aplicar migraciones:
+
+```bash
+npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma
+```
+
+4. Levantar app web (terminal 1):
+
+```bash
 npm run dev
 ```
 
-## Scripts utiles
+5. Levantar worker (terminal 2):
+
+```bash
+npm run worker:start --workspace=apps/web
+```
+
+Sin worker, los batches de enriquecimiento quedan en `PENDING`.
+
+## Comandos utiles
 
 Desde la raiz:
 
-- `npm run dev`
-- `npm run lint`
-- `npm run type-check`
-- `npm test`
-- `npm run build`
+```bash
+npm run dev
+npm run lint
+npm run type-check
+npm run test
+npm run build
+```
 
 Desde `apps/web`:
 
-- `npm run worker:start`
-- `npm run worker:once`
-- `npm run leads:backfill-dedupe`
+```bash
+npm run worker:start
+npm run worker:once
+npm run leads:backfill-dedupe
+npm run db:generate
+npm run db:migrate
+```
+
+## Flujo de enriquecimiento de emails
+
+En `Campaigns -> Nueva campana`:
+
+- `Enriquecer emails faltantes`: procesa solo la categoria seleccionada.
+- `Enriquecer todas las categorias`: procesa todo tu dataset elegible.
+
+La UI muestra:
+
+- barra de progreso por `batchId`
+- consola tipo terminal con eventos por lead
+- estados `PENDING | PROCESSING | DONE | FAILED`
+
+Criterio de elegibilidad:
+
+- lead sin email
+- lead con `website`
+
+## API relevante
+
+- `POST /api/v1/search`
+  - devuelve leads inmediatamente (compatible)
+  - `meta` incluye: `fetched`, `insideRadius`, `created`, `updated`, `deduped`, `queuedForEnrichment`, etc.
+- `GET /api/v1/leads`
+  - orden por `leadScore desc, createdAt desc`
+- `GET /api/v1/leads/stats`
+  - total / con email / sin email / candidatos a enriquecimiento
+- `POST /api/v1/leads/enrich-emails`
+  - crea lote (`batchId`) de enriquecimiento
+- `GET /api/v1/leads/enrich-emails/[batchId]/progress`
+  - progreso consolidado del lote
+- `POST /api/v1/webhooks/resend`
+  - tracking de eventos de email firmado
 
 ## Docker
 
-`docker-compose.yml` levanta:
-
-- `db` (PostgreSQL)
-- `web` (Next.js)
-- `worker` (procesador de jobs `lead.postprocess` y `lead.recheck`)
-- `worker` tambien reconcilia campanas:
-  - `campaign.reconcile-email-events` (cada 6h)
-  - `campaign.reconcile-conversions` (cada 6h)
-
-Arranque:
+Levantar todo:
 
 ```bash
 docker compose up --build
 ```
 
-`web` y `worker` ejecutan `prisma migrate deploy` al iniciar.
+Servicios:
+
+- `db` (PostgreSQL)
+- `web` (Next.js)
+- `worker` (jobs de leads y reconciliacion de campanas)
+
+Nota: en Docker revisa `WORKER_CONCURRENCY` si tu plan de BD tiene limite bajo de conexiones.
+
+## Troubleshooting
+
+### 1) `Error validating datasource db: the URL must start with prisma://`
+
+Causa: Prisma Client generado en modo Data Proxy (`--no-engine`).
+
+Solucion:
+
+```bash
+npm run db:generate --workspace=apps/web
+```
+
+### 2) `The column Lead.enrichmentBatchId does not exist`
+
+Causa: codigo actualizado pero migraciones sin aplicar.
+
+Solucion:
+
+```bash
+npx prisma migrate deploy --schema=apps/web/prisma/schema.prisma
+```
+
+### 3) `Max client connections reached`
+
+Causa: demasiadas conexiones concurrentes (web + worker + polling).
+
+Solucion recomendada:
+
+- `PGBOSS_MAX_CONNECTIONS=1`
+- `WORKER_PGBOSS_MAX_CONNECTIONS=2`
+- `WORKER_CONCURRENCY=1`
+- dejar un solo worker ejecutandose
+
+### 4) Lote de enriquecimiento no avanza (todo `PENDING`)
+
+Checklist:
+
+1. worker activo (`npm run worker:start --workspace=apps/web`)
+2. `DATABASE_URL` correcto en web y worker
+3. migraciones aplicadas
+4. no superar conexiones maximas de la BD

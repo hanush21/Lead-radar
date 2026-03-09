@@ -58,7 +58,8 @@ const STATUS_PRIORITY = {
 
 const prisma = new PrismaClient();
 const onceMode = process.argv.includes("--once") || process.env.WORKER_ONCE === "true";
-const concurrency = Number(process.env.WORKER_CONCURRENCY || "3");
+const concurrency = Math.max(1, Number(process.env.WORKER_CONCURRENCY || "1"));
+const bossMaxConnections = Math.max(1, Number(process.env.WORKER_PGBOSS_MAX_CONNECTIONS || "2"));
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 let processedJobs = 0;
@@ -295,13 +296,13 @@ function deriveLeadTags(lead, opportunities) {
   return [...tags];
 }
 
-async function processLead(leadId, userId, jobName, jobId) {
+async function processLead(leadId, userId, jobName, jobId, batchId) {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
   });
 
   if (!lead) {
-    console.warn("[worker] lead not found", { leadId, userId, jobName, jobId });
+    console.warn("[worker] lead not found", { leadId, userId, jobName, jobId, batchId });
     return;
   }
 
@@ -339,6 +340,7 @@ async function processLead(leadId, userId, jobName, jobId) {
       segment,
       tags: uniqueTags,
       enrichmentStatus: "DONE",
+      enrichmentCompletedAt: new Date(),
       lastSeenAt: new Date(),
     },
   });
@@ -502,60 +504,69 @@ async function reconcileConversions(jobId) {
   return { leadsScanned: convertedLeads.length, attributed };
 }
 
-async function handleLeadJob(job, jobName) {
-  const payload = job?.data || {};
-  const leadId = payload.leadId;
-  const userId = payload.userId;
-  const jobId = job?.id;
+async function handleLeadJob(jobOrJobs, jobName) {
+  const jobs = Array.isArray(jobOrJobs) ? jobOrJobs : [jobOrJobs];
 
-  if (!leadId || !userId) {
-    console.warn("[worker] invalid lead payload", { jobId, jobName, payload });
-    return;
-  }
+  for (const job of jobs) {
+    const payload = job?.data || {};
+    const leadId = payload.leadId;
+    const userId = payload.userId;
+    const batchId = payload.batchId;
+    const jobId = job?.id;
 
-  console.info("[worker] processing lead", { jobId, jobName, leadId, userId });
-
-  try {
-    await processLead(leadId, userId, jobName, jobId);
-    processedJobs += 1;
-    console.info("[worker] lead done", { jobId, jobName, leadId, userId });
-
-    if (onceMode && processedJobs >= 1) {
-      setTimeout(() => shutdown(0), 50);
+    if (!leadId || !userId) {
+      console.warn("[worker] invalid lead payload", { jobId, jobName, payload });
+      continue;
     }
-  } catch (error) {
-    await prisma.lead
-      .update({
-        where: { id: leadId },
-        data: { enrichmentStatus: "FAILED" },
-      })
-      .catch(() => {});
 
-    console.error("[worker] lead failed", { jobId, jobName, leadId, userId, error });
-    throw error;
+    console.info("[worker] processing lead", { jobId, jobName, leadId, userId, batchId });
+
+    try {
+      await processLead(leadId, userId, jobName, jobId, batchId);
+      processedJobs += 1;
+      console.info("[worker] lead done", { jobId, jobName, leadId, userId, batchId });
+
+      if (onceMode && processedJobs >= 1) {
+        setTimeout(() => shutdown(0), 50);
+      }
+    } catch (error) {
+      await prisma.lead
+        .update({
+          where: { id: leadId },
+          data: { enrichmentStatus: "FAILED", enrichmentCompletedAt: new Date() },
+        })
+        .catch(() => {});
+
+      console.error("[worker] lead failed", { jobId, jobName, leadId, userId, batchId, error });
+      throw error;
+    }
   }
 }
 
-async function handleCampaignReconcileJob(job, jobName) {
-  const jobId = job?.id;
-  console.info("[worker] processing campaign reconcile", { jobId, jobName });
+async function handleCampaignReconcileJob(jobOrJobs, jobName) {
+  const jobs = Array.isArray(jobOrJobs) ? jobOrJobs : [jobOrJobs];
 
-  try {
-    if (jobName === CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB) {
-      const result = await reconcileEmailEvents(jobId);
-      console.info("[worker] campaign reconcile email done", { jobId, ...result });
-    } else if (jobName === CAMPAIGN_RECONCILE_CONVERSIONS_JOB) {
-      const result = await reconcileConversions(jobId);
-      console.info("[worker] campaign reconcile conversion done", { jobId, ...result });
-    }
+  for (const job of jobs) {
+    const jobId = job?.id;
+    console.info("[worker] processing campaign reconcile", { jobId, jobName });
 
-    processedJobs += 1;
-    if (onceMode && processedJobs >= 1) {
-      setTimeout(() => shutdown(0), 50);
+    try {
+      if (jobName === CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB) {
+        const result = await reconcileEmailEvents(jobId);
+        console.info("[worker] campaign reconcile email done", { jobId, ...result });
+      } else if (jobName === CAMPAIGN_RECONCILE_CONVERSIONS_JOB) {
+        const result = await reconcileConversions(jobId);
+        console.info("[worker] campaign reconcile conversion done", { jobId, ...result });
+      }
+
+      processedJobs += 1;
+      if (onceMode && processedJobs >= 1) {
+        setTimeout(() => shutdown(0), 50);
+      }
+    } catch (error) {
+      console.error("[worker] campaign reconcile failed", { jobId, jobName, error });
+      throw error;
     }
-  } catch (error) {
-    console.error("[worker] campaign reconcile failed", { jobId, jobName, error });
-    throw error;
   }
 }
 
@@ -587,7 +598,14 @@ async function main() {
     throw new Error("DATABASE_URL is required");
   }
 
-  boss = new PgBoss(process.env.DATABASE_URL);
+  boss = new PgBoss({
+    connectionString: process.env.DATABASE_URL,
+    max: bossMaxConnections,
+    application_name: "leadradar-worker",
+  });
+  boss.on("error", (error) => {
+    console.error("[worker] pg-boss error", error);
+  });
   await boss.start();
   await boss.createQueue(LEAD_POSTPROCESS_JOB);
   await boss.createQueue(LEAD_RECHECK_JOB);
@@ -606,7 +624,7 @@ async function main() {
     );
   }
 
-  console.info("[worker] started", { concurrency, onceMode });
+  console.info("[worker] started", { concurrency, onceMode, bossMaxConnections });
 
   if (onceMode) {
     setTimeout(() => shutdown(0), 20000);

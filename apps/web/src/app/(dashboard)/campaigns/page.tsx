@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mail, Plus, Send, Users, Search, Eye, MapPin, RefreshCw } from "lucide-react";
 import { BUSINESS_CATEGORIES } from "@/modules/leads/domain/value-objects/BusinessCategory";
 
@@ -60,6 +60,28 @@ interface CategoryLeadStats {
   enrichmentCandidates: number;
 }
 
+interface EnrichmentProgressLeadEvent {
+  id: string;
+  name: string;
+  status: "DONE" | "FAILED" | "PENDING" | "PROCESSING";
+  email: string | null;
+  completedAt: string | null;
+}
+
+interface EnrichmentProgress {
+  batchId: string;
+  total: number;
+  pending: number;
+  processing: number;
+  done: number;
+  failed: number;
+  completed: number;
+  withEmail: number;
+  progressPct: number;
+  isCompleted: boolean;
+  recentLeads: EnrichmentProgressLeadEvent[];
+}
+
 const statusLabels: Record<string, { label: string; color: string }> = {
   DRAFT: { label: "Borrador", color: "bg-gray-50 text-gray-600" },
   SENDING: { label: "Enviando", color: "bg-yellow-50 text-yellow-700" },
@@ -106,6 +128,20 @@ export default function CampaignsPage() {
   const [categoryStats, setCategoryStats] = useState<CategoryLeadStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [enrichingEmails, setEnrichingEmails] = useState(false);
+  const [enrichmentBatchId, setEnrichmentBatchId] = useState("");
+  const [enrichmentProgress, setEnrichmentProgress] = useState<EnrichmentProgress | null>(null);
+  const [enrichmentConsoleLines, setEnrichmentConsoleLines] = useState<string[]>([]);
+  const [enrichmentScope, setEnrichmentScope] = useState<"CATEGORY" | "ALL">("CATEGORY");
+  const enrichmentConsoleRef = useRef<HTMLDivElement | null>(null);
+  const seenProgressEventsRef = useRef<Set<string>>(new Set());
+  const lastProgressSnapshotRef = useRef<{
+    total: number;
+    pending: number;
+    processing: number;
+    done: number;
+    failed: number;
+    withEmail: number;
+  } | null>(null);
 
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
@@ -150,6 +186,11 @@ export default function CampaignsPage() {
     return leads.filter((lead) => hasValidEmail(lead.email)).length;
   }, [leads]);
 
+  const appendEnrichmentConsoleLine = useCallback((message: string) => {
+    const time = new Date().toLocaleTimeString("es-ES", { hour12: false });
+    setEnrichmentConsoleLines((current) => [...current, `[${time}] ${message}`].slice(-120));
+  }, []);
+
   useEffect(() => {
     void Promise.all([fetchCampaigns(), fetchTemplates()]).finally(() => setLoading(false));
   }, []);
@@ -158,6 +199,11 @@ export default function CampaignsPage() {
     if (!showCreate) return;
     void fetchCategoryStats(selectedCategory);
   }, [showCreate, selectedCategory]);
+
+  useEffect(() => {
+    if (!enrichmentConsoleRef.current) return;
+    enrichmentConsoleRef.current.scrollTop = enrichmentConsoleRef.current.scrollHeight;
+  }, [enrichmentConsoleLines]);
 
   useEffect(() => {
     if (filteredTemplates.length === 0) {
@@ -220,6 +266,86 @@ export default function CampaignsPage() {
     }
   }
 
+  const fetchEnrichmentProgress = useCallback(async (batchId: string) => {
+    try {
+      const res = await fetch(`/api/v1/leads/enrich-emails/${batchId}/progress`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) return null;
+
+      const progress = data.data as EnrichmentProgress;
+      setEnrichmentProgress(progress);
+
+      const previous = lastProgressSnapshotRef.current;
+      if (!previous) {
+        appendEnrichmentConsoleLine(
+          `Lote iniciado: ${progress.total} leads. Pendientes ${progress.pending}, en proceso ${progress.processing}.`
+        );
+      } else if (
+        previous.done !== progress.done ||
+        previous.failed !== progress.failed ||
+        previous.processing !== progress.processing ||
+        previous.pending !== progress.pending ||
+        previous.withEmail !== progress.withEmail
+      ) {
+        appendEnrichmentConsoleLine(
+          `Progreso ${progress.completed}/${progress.total} | done ${progress.done} | failed ${progress.failed} | processing ${progress.processing} | emails ${progress.withEmail}.`
+        );
+      }
+
+      const recentSorted = [...(progress.recentLeads ?? [])].reverse();
+      for (const event of recentSorted) {
+        const key = `${event.id}:${event.status}:${event.completedAt ?? ""}`;
+        if (seenProgressEventsRef.current.has(key)) continue;
+        seenProgressEventsRef.current.add(key);
+        const leadEmail = hasValidEmail(event.email) ? ` | email ${event.email}` : "";
+        appendEnrichmentConsoleLine(`${event.status} -> ${event.name}${leadEmail}`);
+      }
+
+      lastProgressSnapshotRef.current = {
+        total: progress.total,
+        pending: progress.pending,
+        processing: progress.processing,
+        done: progress.done,
+        failed: progress.failed,
+        withEmail: progress.withEmail,
+      };
+
+      return progress;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  }, [appendEnrichmentConsoleLine]);
+
+  useEffect(() => {
+    if (!enrichmentBatchId) return;
+
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const tick = async () => {
+      const progress = await fetchEnrichmentProgress(enrichmentBatchId);
+      if (!active || !progress) return;
+      if (progress.isCompleted) {
+        appendEnrichmentConsoleLine("Lote completado.");
+        await fetchCategoryStats(selectedCategory);
+        if (timer) clearInterval(timer);
+      }
+    };
+
+    void tick();
+    timer = setInterval(() => {
+      void tick();
+    }, 4000);
+
+    return () => {
+      active = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [appendEnrichmentConsoleLine, enrichmentBatchId, fetchEnrichmentProgress, selectedCategory]);
+
   async function fetchLeadsByCategory(category: string) {
     setLoadingLeads(true);
     setCreateError("");
@@ -244,7 +370,7 @@ export default function CampaignsPage() {
     }
   }
 
-  async function handleEnrichEmails() {
+  async function handleEnrichEmails(scope: "CATEGORY" | "ALL") {
     setEnrichingEmails(true);
     setCreateError("");
     setCreateSuccess("");
@@ -254,7 +380,8 @@ export default function CampaignsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           category: selectedCategory,
-          limit: 400,
+          allCategories: scope === "ALL",
+          limit: scope === "ALL" ? 1000 : 400,
         }),
       });
       const data = await res.json();
@@ -264,8 +391,24 @@ export default function CampaignsPage() {
       }
 
       const result = data.data ?? {};
+      const batchId = typeof result.batchId === "string" ? result.batchId : "";
+      setEnrichmentScope(scope);
+      setEnrichmentProgress(null);
+      setEnrichmentConsoleLines([]);
+      seenProgressEventsRef.current = new Set();
+      lastProgressSnapshotRef.current = null;
+
+      if (batchId) {
+        setEnrichmentBatchId(batchId);
+        appendEnrichmentConsoleLine(
+          `Encolado lote ${batchId} | scope ${scope} | candidatos ${result.candidates ?? 0} | queued ${result.queued ?? 0}.`
+        );
+      } else {
+        setEnrichmentBatchId("");
+        appendEnrichmentConsoleLine("No hay candidatos sin email+website para enriquecer.");
+      }
       setCreateSuccess(
-        `Enriquecimiento encolado. Candidatos: ${result.candidates ?? 0}, encolados: ${result.queued ?? 0}.`
+        `Enriquecimiento encolado (${scope === "ALL" ? "todas las categorias" : selectedCategory}). Candidatos: ${result.candidates ?? 0}, encolados: ${result.queued ?? 0}.`
       );
       await fetchCategoryStats(selectedCategory);
     } catch (error) {
@@ -352,6 +495,12 @@ export default function CampaignsPage() {
     setPreviewLeadId("");
     setPreviewData(null);
     setPreviewError("");
+    setEnrichmentBatchId("");
+    setEnrichmentProgress(null);
+    setEnrichmentConsoleLines([]);
+    setEnrichmentScope("CATEGORY");
+    seenProgressEventsRef.current = new Set();
+    lastProgressSnapshotRef.current = null;
     setCreateError("");
     setCreateSuccess("");
   }
@@ -545,10 +694,18 @@ export default function CampaignsPage() {
                 <button
                   type="button"
                   disabled={enrichingEmails || (categoryStats?.enrichmentCandidates ?? 0) === 0}
-                  onClick={() => void handleEnrichEmails()}
+                  onClick={() => void handleEnrichEmails("CATEGORY")}
                   className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-white disabled:opacity-50"
                 >
                   {enrichingEmails ? "Encolando..." : "Enriquecer emails faltantes"}
+                </button>
+                <button
+                  type="button"
+                  disabled={enrichingEmails}
+                  onClick={() => void handleEnrichEmails("ALL")}
+                  className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-white disabled:opacity-50"
+                >
+                  {enrichingEmails ? "Encolando..." : "Enriquecer todas las categorias"}
                 </button>
               </div>
             </div>
@@ -557,6 +714,41 @@ export default function CampaignsPage() {
               email y con website. Requiere worker activo (`npm run worker:start`).
             </p>
           </div>
+
+          {enrichmentBatchId && (
+            <div className="rounded-lg border bg-slate-950 p-3 text-green-300">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                <span>
+                  batch {enrichmentBatchId} | scope {enrichmentScope}
+                </span>
+                <span>{enrichmentProgress?.isCompleted ? "COMPLETADO" : "EJECUTANDO"}</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded bg-slate-700">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${enrichmentProgress?.progressPct ?? 0}%` }}
+                />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-mono text-green-200 md:grid-cols-4">
+                <span>total: {enrichmentProgress?.total ?? 0}</span>
+                <span>pending: {enrichmentProgress?.pending ?? 0}</span>
+                <span>processing: {enrichmentProgress?.processing ?? 0}</span>
+                <span>done: {enrichmentProgress?.done ?? 0}</span>
+                <span>failed: {enrichmentProgress?.failed ?? 0}</span>
+                <span>emails: {enrichmentProgress?.withEmail ?? 0}</span>
+                <span>progress: {enrichmentProgress?.progressPct ?? 0}%</span>
+              </div>
+              <div
+                ref={enrichmentConsoleRef}
+                className="mt-2 h-40 overflow-auto rounded border border-slate-700 bg-slate-900 p-2 font-mono text-[11px] text-green-300"
+              >
+                {enrichmentConsoleLines.length === 0 && <div>$ esperando eventos de enriquecimiento...</div>}
+                {enrichmentConsoleLines.map((line, index) => (
+                  <div key={`${line}-${index}`}>$ {line}</div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">

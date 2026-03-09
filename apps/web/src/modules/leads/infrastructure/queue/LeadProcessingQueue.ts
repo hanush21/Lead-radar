@@ -13,9 +13,19 @@ async function getBoss(): Promise<PgBoss> {
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is required for queue");
+  const maxConnections = Math.max(1, Number(process.env.PGBOSS_MAX_CONNECTIONS || "1"));
 
   bossStartPromise = (async () => {
-    const boss = new PgBoss(connectionString);
+    const boss = new PgBoss({
+      connectionString,
+      max: maxConnections,
+      application_name: "leadradar-web-queue",
+    } as any);
+    boss.on("error", (error) => {
+      console.error("PgBoss queue error", {
+        error,
+      });
+    });
     await boss.start();
     await boss.createQueue(LEAD_POSTPROCESS_JOB);
     await boss.createQueue(LEAD_RECHECK_JOB);
@@ -46,7 +56,7 @@ export class PgBossLeadProcessingQueue implements ILeadProcessingQueue {
     }
   }
 
-  async enqueueRecheck(payload: { leadId: string; userId: string }): Promise<boolean> {
+  async enqueueRecheck(payload: { leadId: string; userId: string; batchId?: string }): Promise<boolean> {
     try {
       const boss = await getBoss();
       const id = await boss.send(LEAD_RECHECK_JOB, payload, {
@@ -65,4 +75,3 @@ export class PgBossLeadProcessingQueue implements ILeadProcessingQueue {
     }
   }
 }
-
