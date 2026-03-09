@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Plus, Send, Users, Search, Eye, MapPin } from "lucide-react";
+import { Mail, Plus, Send, Users, Search, Eye, MapPin, RefreshCw } from "lucide-react";
 import { BUSINESS_CATEGORIES } from "@/modules/leads/domain/value-objects/BusinessCategory";
 
 interface Campaign {
@@ -52,6 +52,14 @@ interface PreviewPayload {
   };
 }
 
+interface CategoryLeadStats {
+  category: string | null;
+  total: number;
+  withEmail: number;
+  withoutEmail: number;
+  enrichmentCandidates: number;
+}
+
 const statusLabels: Record<string, { label: string; color: string }> = {
   DRAFT: { label: "Borrador", color: "bg-gray-50 text-gray-600" },
   SENDING: { label: "Enviando", color: "bg-yellow-50 text-yellow-700" },
@@ -78,6 +86,10 @@ function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: num
   return earthRadius * c;
 }
 
+function hasValidEmail(value: string | null | undefined) {
+  return Boolean(value && value.trim().length > 0);
+}
+
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
@@ -91,6 +103,9 @@ export default function CampaignsPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [previewData, setPreviewData] = useState<PreviewPayload | null>(null);
+  const [categoryStats, setCategoryStats] = useState<CategoryLeadStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [enrichingEmails, setEnrichingEmails] = useState(false);
 
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
@@ -126,15 +141,23 @@ export default function CampaignsPage() {
   }, [leads, leadsByLocation, locationCenter, locationFilterBlocking]);
 
   const selectedLeadsWithEmail = useMemo(() => {
-    return visibleLeads.filter((lead) => selectedLeadIds.includes(lead.id) && Boolean(lead.email));
+    return visibleLeads.filter((lead) => selectedLeadIds.includes(lead.id) && hasValidEmail(lead.email));
   }, [visibleLeads, selectedLeadIds]);
   const sendableLeadsInView = useMemo(() => {
-    return visibleLeads.filter((lead) => Boolean(lead.email));
+    return visibleLeads.filter((lead) => hasValidEmail(lead.email));
   }, [visibleLeads]);
+  const loadedLeadsWithEmail = useMemo(() => {
+    return leads.filter((lead) => hasValidEmail(lead.email)).length;
+  }, [leads]);
 
   useEffect(() => {
     void Promise.all([fetchCampaigns(), fetchTemplates()]).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!showCreate) return;
+    void fetchCategoryStats(selectedCategory);
+  }, [showCreate, selectedCategory]);
 
   useEffect(() => {
     if (filteredTemplates.length === 0) {
@@ -178,6 +201,25 @@ export default function CampaignsPage() {
     setTemplates(data.data ?? []);
   }
 
+  async function fetchCategoryStats(category: string) {
+    setStatsLoading(true);
+    try {
+      const params = new URLSearchParams({ category });
+      const res = await fetch(`/api/v1/leads/stats?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setCategoryStats(null);
+        return;
+      }
+      setCategoryStats(data.data ?? null);
+    } catch (error) {
+      console.error(error);
+      setCategoryStats(null);
+    } finally {
+      setStatsLoading(false);
+    }
+  }
+
   async function fetchLeadsByCategory(category: string) {
     setLoadingLeads(true);
     setCreateError("");
@@ -190,6 +232,7 @@ export default function CampaignsPage() {
       const res = await fetch(`/api/v1/leads?${params.toString()}`);
       const data = await res.json();
       setLeads(data.data ?? []);
+      await fetchCategoryStats(category);
       setSelectedLeadIds([]);
       setPreviewLeadId("");
       setPreviewData(null);
@@ -198,6 +241,38 @@ export default function CampaignsPage() {
       setCreateError("No se pudieron cargar leads de la categoria seleccionada.");
     } finally {
       setLoadingLeads(false);
+    }
+  }
+
+  async function handleEnrichEmails() {
+    setEnrichingEmails(true);
+    setCreateError("");
+    setCreateSuccess("");
+    try {
+      const res = await fetch("/api/v1/leads/enrich-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: selectedCategory,
+          limit: 400,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateError(data.error?.message ?? "No se pudo encolar el enriquecimiento de emails.");
+        return;
+      }
+
+      const result = data.data ?? {};
+      setCreateSuccess(
+        `Enriquecimiento encolado. Candidatos: ${result.candidates ?? 0}, encolados: ${result.queued ?? 0}.`
+      );
+      await fetchCategoryStats(selectedCategory);
+    } catch (error) {
+      console.error(error);
+      setCreateError("No se pudo encolar el enriquecimiento de emails.");
+    } finally {
+      setEnrichingEmails(false);
     }
   }
 
@@ -445,6 +520,44 @@ export default function CampaignsPage() {
             </div>
           </div>
 
+          <div className="rounded-lg border bg-gray-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-gray-700">
+                {statsLoading ? (
+                  <span>Cargando metricas de la categoria...</span>
+                ) : (
+                  <span>
+                    Categoria: <strong>{selectedCategory}</strong> | leads: <strong>{categoryStats?.total ?? 0}</strong>{" "}
+                    | con email: <strong className="text-emerald-700">{categoryStats?.withEmail ?? 0}</strong> | sin
+                    email: <strong className="text-red-600">{categoryStats?.withoutEmail ?? 0}</strong>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void fetchCategoryStats(selectedCategory)}
+                  className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-white"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refrescar
+                </button>
+                <button
+                  type="button"
+                  disabled={enrichingEmails || (categoryStats?.enrichmentCandidates ?? 0) === 0}
+                  onClick={() => void handleEnrichEmails()}
+                  className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-white disabled:opacity-50"
+                >
+                  {enrichingEmails ? "Encolando..." : "Enriquecer emails faltantes"}
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Candidatos a enriquecimiento web: {categoryStats?.enrichmentCandidates ?? 0}. Solo se intentan leads sin
+              email y con website. Requiere worker activo (`npm run worker:start`).
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Plantilla</label>
@@ -591,6 +704,7 @@ export default function CampaignsPage() {
               <div className="flex items-center justify-between px-3 py-2 border-b bg-gray-50">
                 <p className="text-sm font-medium text-gray-700">
                   Leads: {leads.length} | en radio: {leadsByLocation.length} | visibles: {visibleLeads.length} |
+                  con email: {loadedLeadsWithEmail} | sin email: {Math.max(0, leads.length - loadedLeadsWithEmail)} |
                   seleccionados: {selectedLeadIds.length} | enviables: {sendableLeadsInView.length}
                 </p>
                 <button
@@ -617,7 +731,7 @@ export default function CampaignsPage() {
               )}
               <div className="max-h-60 overflow-auto divide-y">
                 {visibleLeads.map((lead) => {
-                  const disabled = !lead.email;
+                  const disabled = !hasValidEmail(lead.email);
                   return (
                   <label
                     key={lead.id}
@@ -627,13 +741,13 @@ export default function CampaignsPage() {
                       type="checkbox"
                       checked={selectedLeadIds.includes(lead.id)}
                       disabled={disabled}
-                      onChange={() => toggleLead(lead.id, Boolean(lead.email))}
+                      onChange={() => toggleLead(lead.id, hasValidEmail(lead.email))}
                     />
                     <span className="font-medium">{lead.name}</span>
                     <span className="text-xs text-muted-foreground">{lead.segment}</span>
                     <span className="text-xs text-muted-foreground">score {lead.leadScore}</span>
                     <span className="text-xs text-muted-foreground truncate">{lead.address}</span>
-                    {lead.email ? (
+                    {hasValidEmail(lead.email) ? (
                       <span className="text-xs text-emerald-700">con email</span>
                     ) : (
                       <span className="text-xs text-red-600">sin email (no enviable)</span>

@@ -6,6 +6,23 @@ const LEAD_POSTPROCESS_JOB = "lead.postprocess";
 const LEAD_RECHECK_JOB = "lead.recheck";
 const CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB = "campaign.reconcile-email-events";
 const CAMPAIGN_RECONCILE_CONVERSIONS_JOB = "campaign.reconcile-conversions";
+const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+const CONTACT_PATH_HINTS = [
+  "/contact",
+  "/contacto",
+  "/sobre-nosotros",
+  "/about",
+  "/about-us",
+  "/aviso-legal",
+  "/legal",
+  "/privacy",
+  "/terms",
+];
+const CONTACT_LINK_KEYWORDS = ["contact", "contacto", "about", "legal", "aviso", "privacy", "terms", "team"];
+const EMAIL_REJECT_PREFIXES = ["noreply@", "no-reply@", "donotreply@", "do-not-reply@"];
+const FETCH_TIMEOUT_MS = Number(process.env.WORKER_FETCH_TIMEOUT_MS || "5000");
+const MAX_FETCH_BODY_CHARS = 150000;
+const MAX_CONTACT_LINKS = 6;
 
 const BOOKING_CATEGORIES = new Set([
   "BARBERSHOP",
@@ -47,6 +64,165 @@ const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_
 let processedJobs = 0;
 let shuttingDown = false;
 let boss = null;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeWebsite(rawWebsite) {
+  const raw = String(rawWebsite || "").trim();
+  if (!raw) return null;
+
+  try {
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const url = new URL(withProtocol);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function stripHtml(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isLikelyValidEmail(email) {
+  const value = String(email || "").trim().toLowerCase();
+  if (!value) return false;
+  if (EMAIL_REJECT_PREFIXES.some((prefix) => value.startsWith(prefix))) return false;
+  if (value.endsWith(".png") || value.endsWith(".jpg") || value.endsWith(".jpeg") || value.endsWith(".svg")) {
+    return false;
+  }
+  return true;
+}
+
+function uniqueEmailsFromText(input) {
+  const text = String(input || "").toLowerCase();
+  const all = text.match(EMAIL_RE) || [];
+  const clean = new Set();
+  for (const email of all) {
+    const candidate = email.replace(/[),.;:!?]+$/, "");
+    if (isLikelyValidEmail(candidate)) clean.add(candidate);
+  }
+  return [...clean];
+}
+
+function getSameOriginContactLinks(html, baseUrl) {
+  const links = new Set();
+  const hrefRe = /href\s*=\s*["']([^"']+)["']/gi;
+  let match = hrefRe.exec(html);
+
+  while (match) {
+    const href = match[1];
+    try {
+      const url = new URL(href, baseUrl);
+      if (url.origin !== new URL(baseUrl).origin) {
+        match = hrefRe.exec(html);
+        continue;
+      }
+      const path = `${url.pathname}${url.search}`.toLowerCase();
+      if (CONTACT_LINK_KEYWORDS.some((keyword) => path.includes(keyword))) {
+        links.add(`${url.origin}${url.pathname}${url.search}`);
+      }
+    } catch {}
+    match = hrefRe.exec(html);
+  }
+
+  return [...links].slice(0, MAX_CONTACT_LINKS);
+}
+
+async function fetchHtml(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "LeadRadarBot/1.0 (+https://lead-radar.local)",
+        accept: "text/html,application/xhtml+xml",
+      },
+    });
+    if (!response.ok) return null;
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) return null;
+    const text = await response.text();
+    return text.slice(0, MAX_FETCH_BODY_CHARS);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function selectBestEmail(emails, website) {
+  if (!emails.length) return null;
+  const base = normalizeWebsite(website);
+  const domain = base ? new URL(base).hostname.replace(/^www\./i, "") : "";
+
+  const score = (email) => {
+    let points = 0;
+    const lower = email.toLowerCase();
+    const emailDomain = lower.split("@")[1] || "";
+
+    if (domain && (emailDomain === domain || emailDomain.endsWith(`.${domain}`))) points += 4;
+    if (lower.startsWith("info@") || lower.startsWith("hola@") || lower.startsWith("contacto@")) points += 2;
+    if (lower.startsWith("admin@") || lower.startsWith("webmaster@")) points -= 1;
+    return points;
+  };
+
+  return [...emails].sort((a, b) => score(b) - score(a))[0];
+}
+
+async function discoverEmailFromWebsite(website) {
+  const normalized = normalizeWebsite(website);
+  if (!normalized) return null;
+
+  const visited = new Set();
+  const candidates = [];
+  const queue = [normalized];
+
+  for (const path of CONTACT_PATH_HINTS) {
+    queue.push(`${normalized}${path}`);
+  }
+
+  while (queue.length > 0 && visited.size < 8) {
+    const target = queue.shift();
+    if (!target || visited.has(target)) continue;
+    visited.add(target);
+
+    const html = await fetchHtml(target);
+    if (!html) {
+      await sleep(120);
+      continue;
+    }
+
+    const directEmails = uniqueEmailsFromText(html);
+    for (const email of directEmails) candidates.push(email);
+
+    const textEmails = uniqueEmailsFromText(stripHtml(html));
+    for (const email of textEmails) candidates.push(email);
+
+    if (candidates.length > 0) break;
+
+    const links = getSameOriginContactLinks(html, target);
+    for (const link of links) {
+      if (!visited.has(link)) queue.push(link);
+    }
+
+    await sleep(120);
+  }
+
+  const unique = [...new Set(candidates)];
+  return selectBestEmail(unique, normalized);
+}
 
 function calculateLeadScore(lead) {
   let score = 25;
@@ -134,18 +310,34 @@ async function processLead(leadId, userId, jobName, jobId) {
     data: { enrichmentStatus: "PROCESSING" },
   });
 
-  const opportunities = analyzeLeadOpportunities(lead);
-  const leadScore = calculateLeadScore(lead);
+  let discoveredEmail = null;
+  if (!lead.email && lead.website) {
+    discoveredEmail = await discoverEmailFromWebsite(lead.website);
+    if (discoveredEmail) {
+      console.info("[worker] email discovered", { jobId, leadId, userId, discoveredEmail });
+    }
+  }
+
+  const leadForAnalysis = {
+    ...lead,
+    email: discoveredEmail || lead.email,
+  };
+
+  const opportunities = analyzeLeadOpportunities(leadForAnalysis);
+  const leadScore = calculateLeadScore(leadForAnalysis);
   const segment = deriveLeadSegment(leadScore);
-  const tags = deriveLeadTags(lead, opportunities);
+  const tags = deriveLeadTags(leadForAnalysis, opportunities);
+  if (discoveredEmail) tags.push("EMAIL_DISCOVERED");
+  const uniqueTags = [...new Set(tags)];
 
   await prisma.lead.update({
     where: { id: leadId },
     data: {
+      ...(discoveredEmail ? { email: discoveredEmail } : {}),
       opportunities,
       leadScore,
       segment,
-      tags,
+      tags: uniqueTags,
       enrichmentStatus: "DONE",
       lastSeenAt: new Date(),
     },
