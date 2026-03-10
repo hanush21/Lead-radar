@@ -55,10 +55,10 @@ export async function GET() {
       ]);
 
     const statusMap: Record<string, number> = Object.fromEntries(
-      leadsByStatus.map((s) => [s.status, s._count._all])
+      leadsByStatus.map((s: { status: string; _count: { _all: number } }) => [s.status, s._count._all])
     );
     const emailMap: Record<string, number> = Object.fromEntries(
-      emailStats.map((s) => [s.status, s._count._all])
+      emailStats.map((s: { status: string; _count: { _all: number } }) => [s.status, s._count._all])
     );
 
     return NextResponse.json({
