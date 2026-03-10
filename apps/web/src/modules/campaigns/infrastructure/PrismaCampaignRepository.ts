@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/shared/lib/prisma";
 import type { Campaign, CreateCampaignInput } from "../domain/entities/Campaign";
 import type { CampaignTemplate } from "../domain/entities/CampaignTemplate";
@@ -132,7 +131,7 @@ export class PrismaCampaignRepository implements ICampaignRepository {
     occurredAt: Date;
     payload: unknown;
   }): Promise<{ created: boolean }> {
-    return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    return prisma.$transaction(async (tx: any) => {
       try {
         await tx.emailEvent.create({
           data: {
@@ -160,7 +159,7 @@ export class PrismaCampaignRepository implements ICampaignRepository {
         EVENT_TO_STATUS[input.eventType]
       );
 
-      const patch: Prisma.EmailJobUpdateInput = {
+      const patch: any = {
         status: nextStatus,
         lastSyncedAt: new Date(),
       };
