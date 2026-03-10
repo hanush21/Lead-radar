@@ -235,7 +235,8 @@ export class PrismaCampaignRepository implements ICampaignRepository {
   }
 
   async getCampaignStats(campaignId: string) {
-    const jobs = await prisma.emailJob.findMany({ where: { campaignId } });
+    const rawJobs = await prisma.emailJob.findMany({ where: { campaignId } });
+    const jobs: EmailJob[] = rawJobs.map(mapEmailJob);
 
     const total = jobs.length;
     const sent = jobs.filter((j) => Boolean(j.sentAt)).length;
