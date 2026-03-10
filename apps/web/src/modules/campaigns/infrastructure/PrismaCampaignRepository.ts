@@ -132,7 +132,7 @@ export class PrismaCampaignRepository implements ICampaignRepository {
     occurredAt: Date;
     payload: unknown;
   }): Promise<{ created: boolean }> {
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       try {
         await tx.emailEvent.create({
           data: {
