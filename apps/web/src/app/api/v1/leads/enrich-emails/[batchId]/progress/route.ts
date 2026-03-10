@@ -95,13 +95,21 @@ export async function GET(_request: NextRequest, { params }: Params) {
         withEmail,
         progressPct,
         isCompleted: total > 0 && completed >= total,
-        recentLeads: recentLeads.map((lead) => ({
+        recentLeads: recentLeads.map(
+          (lead: {
+            id: string;
+            name: string;
+            email: string | null;
+            enrichmentStatus: string;
+            enrichmentCompletedAt: Date | null;
+          }) => ({
           id: lead.id,
           name: lead.name,
           status: lead.enrichmentStatus,
           email: lead.email,
           completedAt: lead.enrichmentCompletedAt,
-        })),
+          })
+        ),
       },
     });
   } catch (error) {
