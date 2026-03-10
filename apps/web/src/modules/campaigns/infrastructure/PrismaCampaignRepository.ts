@@ -142,7 +142,7 @@ export class PrismaCampaignRepository implements ICampaignRepository {
             resendId: input.resendId,
             eventType: input.eventType,
             occurredAt: input.occurredAt,
-            payload: input.payload as Prisma.InputJsonValue,
+            payload: input.payload as any,
           },
         });
       } catch (error) {

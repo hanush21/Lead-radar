@@ -1,5 +1,4 @@
 import { prisma } from "@/shared/lib/prisma";
-import type { Prisma } from "@prisma/client";
 import type { Lead, CreateLeadInput } from "../domain/entities/Lead";
 import type { ILeadRepository, LeadFilters, LeadUpsertSummary } from "../domain/repositories/ILeadRepository";
 import { buildLeadDedupeKey } from "../domain/services/LeadIdentity";
@@ -193,7 +192,7 @@ export class PrismaLeadRepository implements ILeadRepository {
     };
   }
 
-  private toPrismaJson(value: unknown): Prisma.InputJsonValue {
-    return value as Prisma.InputJsonValue;
+  private toPrismaJson(value: unknown): any {
+    return value as any;
   }
 }
