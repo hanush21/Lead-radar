@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       await prisma.lead.updateMany({
         where: {
           userId: session.user.id,
-          id: { in: leads.map((lead) => lead.id) },
+          id: { in: leads.map((lead: { id: string }) => lead.id) },
         },
         data: {
           enrichmentBatchId: batchId,
@@ -91,7 +91,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (queued < leads.length) {
-      const skippedIds = leads.map((lead) => lead.id).filter((id) => !queuedIds.includes(id));
+      const skippedIds = leads
+        .map((lead: { id: string }) => lead.id)
+        .filter((id: string) => !queuedIds.includes(id));
       if (skippedIds.length > 0) {
         await prisma.lead.updateMany({
           where: {
