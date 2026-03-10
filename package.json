@@ -12,6 +12,7 @@
     "lint": "turbo lint",
     "type-check": "turbo type-check",
     "test": "turbo test",
+    "postinstall": "npm run db:generate --workspace=apps/web",
     "clean": "turbo clean && rimraf node_modules",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
