@@ -26,6 +26,7 @@ Crear `apps/web/.env.local` usando `apps/web/.env.example`.
 Variables principales:
 
 - `DATABASE_URL`
+- `DIRECT_URL`
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
 - `SERPAPI_API_KEY`
@@ -41,9 +42,18 @@ Variables principales:
 Variables operativas recomendadas (evitan saturar conexiones):
 
 - `PGBOSS_MAX_CONNECTIONS=1`
-- `WORKER_PGBOSS_MAX_CONNECTIONS=2`
+- `WORKER_PGBOSS_MAX_CONNECTIONS=1`
 - `WORKER_CONCURRENCY=1`
 - `PRISMA_LOG_QUERIES=false`
+
+Configuracion recomendada con Supabase:
+
+- `DATABASE_URL`: URL pooled para runtime.
+  - Vercel / serverless: usar Supavisor transaction mode con `connection_limit=1`.
+  - Worker persistente: usar direct connection o session mode si necesitas pooler IPv4.
+- `DIRECT_URL`: URL para Prisma CLI (`migrate deploy`).
+  - usar direct connection si tu entorno soporta IPv6.
+  - si no, usar session mode de Supavisor.
 
 ## Arranque local (recomendado)
 
@@ -197,9 +207,12 @@ Causa: demasiadas conexiones concurrentes (web + worker + polling).
 Solucion recomendada:
 
 - `PGBOSS_MAX_CONNECTIONS=1`
-- `WORKER_PGBOSS_MAX_CONNECTIONS=2`
+- `WORKER_PGBOSS_MAX_CONNECTIONS=1`
 - `WORKER_CONCURRENCY=1`
 - dejar un solo worker ejecutandose
+- usar `DATABASE_URL` pooled para runtime
+- usar `DIRECT_URL` para migraciones Prisma
+- no compartir la base de produccion con `localhost` salvo para pruebas puntuales
 
 ### 4) Lote de enriquecimiento no avanza (todo `PENDING`)
 
