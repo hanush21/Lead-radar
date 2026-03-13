@@ -27,6 +27,7 @@ Variables principales:
 
 - `DATABASE_URL`
 - `DIRECT_URL`
+- `APP_BASE_URL`
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
 - `PASSWORD_RESET_TOKEN_TTL_MINUTES`
@@ -55,6 +56,9 @@ Configuracion recomendada con Supabase:
 - `DIRECT_URL`: URL para Prisma CLI (`migrate deploy`).
   - usar direct connection si tu entorno soporta IPv6.
   - si no, usar session mode de Supavisor.
+- `APP_BASE_URL`: URL publica canonica usada en emails de bienvenida y recuperacion.
+  - ejemplo en produccion: `https://tu-dominio.com`
+  - no debe apuntar a `localhost`
 
 ## Arranque local (recomendado)
 

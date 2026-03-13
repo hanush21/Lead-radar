@@ -12,6 +12,7 @@ import {
   Text,
 } from "@react-email/components";
 import { ResendEmailProvider } from "@/modules/campaigns/infrastructure/ResendEmailProvider";
+import { getConfiguredAppBaseUrl } from "@/modules/auth/infrastructure/passwordReset";
 
 interface AuthEmailLayoutProps {
   preview: string;
@@ -145,6 +146,7 @@ function LeadRadarAuthEmail(props: AuthEmailLayoutProps) {
 
 async function renderWelcomeEmail(input: { name: string }) {
   const displayName = input.name || "equipo";
+  const appBaseUrl = getConfiguredAppBaseUrl() || "http://localhost:3000";
   return render(
     <LeadRadarAuthEmail
       preview="Tu cuenta de LeadRadar ya esta lista"
@@ -153,7 +155,7 @@ async function renderWelcomeEmail(input: { name: string }) {
       intro="Confirmamos que tu cuenta de LeadRadar se ha creado correctamente."
       body="Ya puedes entrar al dashboard, buscar negocios por zona, enriquecer leads y lanzar campanas con seguimiento desde un mismo panel."
       actionLabel="Entrar en LeadRadar"
-      actionUrl={process.env.NEXTAUTH_URL || "http://localhost:3000/login"}
+      actionUrl={`${appBaseUrl}/login`}
       note="Te recomendamos revisar la configuracion de busqueda, el token de Mapbox y tus claves de Resend antes de lanzar campanas."
     />
   );

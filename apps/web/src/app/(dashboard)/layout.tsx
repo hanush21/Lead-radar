@@ -19,6 +19,15 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
 
+  function handleSignOut() {
+    const callbackUrl =
+      typeof window !== "undefined"
+        ? new URL("/login", window.location.origin).toString()
+        : "/login";
+
+    void signOut({ callbackUrl });
+  }
+
   return (
     <div className="flex h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
       <aside className="w-64 border-r border-border/20 bg-background/50 backdrop-blur-sm flex flex-col">
@@ -52,7 +61,7 @@ export default function DashboardLayout({
 
         <div className="border-t border-border/20 p-3">
           <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={handleSignOut}
             className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-all duration-200"
           >
             <LogOut className="h-4 w-4" />

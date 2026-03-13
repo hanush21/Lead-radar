@@ -29,8 +29,14 @@ export function getPasswordResetTtlMinutes(): number {
   );
 }
 
+export function getConfiguredAppBaseUrl(): string | null {
+  const configured = process.env.APP_BASE_URL?.trim() || process.env.NEXTAUTH_URL?.trim();
+  if (!configured) return null;
+  return configured.replace(/\/+$/, "");
+}
+
 export function resolveAppBaseUrl(fallbackOrigin?: string): string {
-  const configured = process.env.NEXTAUTH_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
+  const configured = getConfiguredAppBaseUrl();
+  if (configured) return configured;
   return String(fallbackOrigin || "").replace(/\/+$/, "");
 }
