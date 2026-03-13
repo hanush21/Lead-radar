@@ -192,3 +192,15 @@ Checklist:
 2. `DATABASE_URL` correcto en web y worker
 3. migraciones aplicadas
 4. no superar conexiones maximas de la BD
+
+### 5) Render: `password authentication failed for user ...` (`28P01`)
+
+Causa habitual: credenciales incorrectas en el servicio worker (o password no codificado en URL).
+
+Checklist:
+
+1. definir en Render `WORKER_DATABASE_URL` (o `DATABASE_URL`) en el servicio del worker
+2. no envolver el valor con comillas (`"` o `'`)
+3. si el password tiene caracteres especiales (`@`, `:`, `/`, `#`, `%`), usar URL encoding
+4. confirmar que web y worker apuntan a la misma base de datos
+5. redeploy del worker tras actualizar variables

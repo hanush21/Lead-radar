@@ -1,6 +1,9 @@
+const { loadEnvConfig } = require("@next/env");
 const PgBoss = require("pg-boss");
 const { PrismaClient } = require("@prisma/client");
 const { Resend } = require("resend");
+
+loadEnvConfig(process.cwd());
 
 const LEAD_POSTPROCESS_JOB = "lead.postprocess";
 const LEAD_RECHECK_JOB = "lead.recheck";
@@ -65,6 +68,21 @@ const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_
 let processedJobs = 0;
 let shuttingDown = false;
 let boss = null;
+
+function getSafeDbTarget(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    return {
+      protocol: url.protocol.replace(":", ""),
+      host: url.hostname || "(unknown)",
+      port: url.port || "(default)",
+      database: (url.pathname || "/").replace(/^\//, "") || "(default)",
+      user: decodeURIComponent(url.username || "") || "(empty)",
+    };
+  } catch {
+    return { invalid: true };
+  }
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -594,19 +612,35 @@ async function ensureSchedules() {
 }
 
 async function main() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is required");
+  const databaseUrl = process.env.WORKER_DATABASE_URL || process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL or WORKER_DATABASE_URL is required");
   }
+  const dbTarget = getSafeDbTarget(databaseUrl);
 
   boss = new PgBoss({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: databaseUrl,
     max: bossMaxConnections,
     application_name: "leadradar-worker",
   });
   boss.on("error", (error) => {
     console.error("[worker] pg-boss error", error);
   });
-  await boss.start();
+  try {
+    await boss.start();
+  } catch (error) {
+    if (error && error.code === "28P01") {
+      console.error("[worker] database authentication failed", {
+        code: error.code,
+        dbTarget,
+        usingWorkerDatabaseUrl: Boolean(process.env.WORKER_DATABASE_URL),
+      });
+      console.error(
+        "[worker] hint: verify credentials in Render env vars (no quotes, URL-encoded password if it has special characters)."
+      );
+    }
+    throw error;
+  }
   await boss.createQueue(LEAD_POSTPROCESS_JOB);
   await boss.createQueue(LEAD_RECHECK_JOB);
   await boss.createQueue(CAMPAIGN_RECONCILE_EMAIL_EVENTS_JOB);
