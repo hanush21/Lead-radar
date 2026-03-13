@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -15,6 +15,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setRegistered(params.get("registered") === "true");
+    setResetSuccess(params.get("reset") === "success");
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,22 +38,31 @@ export default function LoginPage() {
         ? callbackFromQuery
         : "/search";
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-      callbackUrl,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+        callbackUrl,
+      });
 
-    setLoading(false);
+      setLoading(false);
 
-    if (result?.error) {
-      setError("Email o contrasena incorrectos");
-      return;
+      if (result?.error) {
+        setError(
+          result.error === "CredentialsSignin"
+            ? "Email o contrasena incorrectos"
+            : "No se pudo iniciar sesion. Intenta de nuevo en unos segundos."
+        );
+        return;
+      }
+
+      router.push(callbackUrl);
+      router.refresh();
+    } catch {
+      setLoading(false);
+      setError("No se pudo iniciar sesion. Intenta de nuevo en unos segundos.");
     }
-
-    router.push(callbackUrl);
-    router.refresh();
   };
 
   return (
@@ -57,6 +74,18 @@ export default function LoginPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {registered ? (
+            <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
+              Cuenta creada correctamente. Revisa tu correo para ver el mensaje de bienvenida.
+            </div>
+          ) : null}
+
+          {resetSuccess ? (
+            <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
+              Contrasena actualizada. Ya puedes iniciar sesion.
+            </div>
+          ) : null}
+
           {error && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
@@ -86,6 +115,12 @@ export default function LoginPage() {
                 required
                 placeholder="********"
               />
+            </div>
+
+            <div className="flex justify-end">
+              <Link href="/forgot-password" className="text-sm font-medium text-primary hover:underline">
+                He olvidado mi contrasena
+              </Link>
             </div>
 
             <Button type="submit" disabled={loading} className="w-full">

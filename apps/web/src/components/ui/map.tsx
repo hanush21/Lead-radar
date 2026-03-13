@@ -105,6 +105,8 @@ export default function Map({ initialCenter, initialRadius, onLocationChange }: 
     }
 
     mapboxgl.accessToken = mapboxToken;
+    (mapboxgl as typeof mapboxgl & { setTelemetryEnabled?: (enabled: boolean) => void })
+      .setTelemetryEnabled?.(false);
 
     if (!mapContainer.current) return;
 

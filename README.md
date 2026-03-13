@@ -29,6 +29,7 @@ Variables principales:
 - `DIRECT_URL`
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
+- `PASSWORD_RESET_TOKEN_TTL_MINUTES`
 - `SERPAPI_API_KEY`
 - `RESEND_API_KEY`
 - `RESEND_WEBHOOK_SECRET`
@@ -131,6 +132,12 @@ Criterio de elegibilidad:
 
 ## API relevante
 
+- `POST /api/auth/register`
+  - crea usuario y envia email de bienvenida si Resend esta configurado
+- `POST /api/auth/forgot-password`
+  - genera token de recuperacion y envia email de reset
+- `POST /api/auth/reset-password`
+  - valida token y actualiza la contrasena
 - `POST /api/v1/search`
   - devuelve leads inmediatamente (compatible)
   - `meta` incluye: `fetched`, `insideRadius`, `created`, `updated`, `deduped`, `queuedForEnrichment`, etc.

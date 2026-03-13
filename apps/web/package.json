@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
     "db:studio": "prisma studio",
     "leads:backfill-dedupe": "node scripts/backfill-lead-dedupe.js",
     "worker:start": "node scripts/lead-worker.js",
