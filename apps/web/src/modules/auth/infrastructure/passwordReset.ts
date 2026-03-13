@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "crypto";
+import { getAuthBaseUrl } from "@/modules/auth/infrastructure/authEnv";
 
 const DEFAULT_PASSWORD_RESET_TTL_MINUTES = 60;
 
@@ -30,7 +31,7 @@ export function getPasswordResetTtlMinutes(): number {
 }
 
 export function getConfiguredAppBaseUrl(): string | null {
-  const configured = process.env.APP_BASE_URL?.trim() || process.env.NEXTAUTH_URL?.trim();
+  const configured = getAuthBaseUrl();
   if (!configured) return null;
   return configured.replace(/\/+$/, "");
 }

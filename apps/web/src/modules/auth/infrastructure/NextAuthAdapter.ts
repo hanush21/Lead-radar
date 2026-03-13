@@ -3,10 +3,11 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/shared/lib/prisma";
 import bcrypt from "bcryptjs";
 import { getConfiguredAppBaseUrl } from "@/modules/auth/infrastructure/passwordReset";
+import { getAuthSecret } from "@/modules/auth/infrastructure/authEnv";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: getAuthSecret(),
   pages: {
     signIn: "/login",
     newUser: "/register",
