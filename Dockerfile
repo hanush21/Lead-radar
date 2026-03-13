@@ -21,10 +21,14 @@ ENV PORT=3000
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/package.json /app/package-lock.json /app/turbo.json ./
 COPY --from=build /app/apps/web ./apps/web
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN npm prune --omit=dev --workspaces --include-workspace-root
+RUN npm prune --omit=dev --workspaces --include-workspace-root \
+  && chmod +x /usr/local/bin/entrypoint.sh \
+  && chown -R node:node /app /usr/local/bin/entrypoint.sh
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start", "--workspace=apps/web"]
+USER node
 
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

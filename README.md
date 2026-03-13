@@ -151,6 +151,23 @@ Servicios:
 
 Nota: en Docker revisa `WORKER_CONCURRENCY` si tu plan de BD tiene limite bajo de conexiones.
 
+### EasyPanel (un solo Dockerfile para web/worker)
+
+Este repo incluye un `entrypoint` que permite usar la misma imagen para ambos servicios.
+
+Variables importantes:
+
+- `SERVICE_ROLE=web` o `SERVICE_ROLE=worker`
+- `RUN_MIGRATIONS=true` (por defecto)
+- `DATABASE_URL` (o `WORKER_DATABASE_URL` para worker)
+
+Comportamiento:
+
+- al iniciar, ejecuta `prisma migrate deploy` si `RUN_MIGRATIONS=true`
+- luego arranca `next start` (`web`) o `worker:start` (`worker`)
+
+Nota: las migraciones crean/actualizan tablas existentes, pero no crean la base de datos si no existe.
+
 ## Troubleshooting
 
 ### 1) `Error validating datasource db: the URL must start with prisma://`
