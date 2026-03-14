@@ -114,7 +114,17 @@ npm run worker:once
 npm run leads:backfill-dedupe
 npm run db:generate
 npm run db:migrate
+npm run build
+npm run start:hostinger
 ```
+
+Al ejecutar `npm run build` dentro de `apps/web`, Next genera:
+
+- `.next/standalone`
+- `.next/static`
+- `dist-hostinger`
+
+`dist-hostinger` queda preparado para despliegue manual en un hosting Node como Hostinger.
 
 ## Flujo de enriquecimiento de emails
 
@@ -188,6 +198,55 @@ Comportamiento:
 - luego arranca `next start` (`web`) o `worker:start` (`worker`)
 
 Nota: las migraciones crean/actualizan tablas existentes, pero no crean la base de datos si no existe.
+
+## Despliegue manual en Hostinger
+
+Si no quieres depender de Vercel, puedes desplegar la web manualmente en un hosting Node.
+
+1. Genera el paquete:
+
+```bash
+cd apps/web
+npm run build
+```
+
+2. Se creara `apps/web/dist-hostinger`.
+
+3. Sube **todo el contenido** de `dist-hostinger` al servidor de Hostinger.
+
+4. Configura el comando de inicio:
+
+```bash
+node start.js
+```
+
+5. Configura en Hostinger las variables de entorno necesarias:
+
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `APP_BASE_URL`
+- `NEXTAUTH_URL`
+- `AUTH_URL`
+- `NEXTAUTH_SECRET`
+- `AUTH_SECRET`
+- `NEXT_PUBLIC_MAPBOX_TOKEN`
+- `SERPAPI_API_KEY`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+- `RESEND_REPLY_TO`
+
+6. Aplica migraciones **antes del upload** desde tu entorno local o CI si la base de datos no esta actualizada:
+
+```bash
+cd apps/web
+npx prisma migrate deploy --schema=prisma/schema.prisma
+```
+
+Notas:
+
+- `dist-hostinger/HOSTINGER_DEPLOY.txt` incluye un recordatorio del comando de arranque.
+- `dist-hostinger/.env.example` te sirve como base para configurar variables en Hostinger.
+- Este despliegue sirve para la **web**. El worker sigue siendo un proceso separado si quieres enriquecimiento y reconciliacion asincrona.
 
 ## Troubleshooting
 
