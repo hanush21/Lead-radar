@@ -11,6 +11,14 @@ const nextAuth = NextAuth({
   basePath: "/api/auth",
   session: { strategy: "jwt" },
   secret: getAuthSecret(),
+  logger: {
+    error(code, ...message) {
+      console.error("[auth][error]", code, ...message);
+    },
+    warn(code, ...message) {
+      console.warn("[auth][warn]", code, ...message);
+    },
+  },
   pages: {
     signIn: "/login",
     newUser: "/register",
