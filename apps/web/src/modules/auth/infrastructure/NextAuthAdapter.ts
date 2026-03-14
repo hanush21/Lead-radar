@@ -8,11 +8,13 @@ import { getConfiguredAppBaseUrl } from "@/modules/auth/infrastructure/passwordR
 import { getAuthSecret } from "@/modules/auth/infrastructure/authEnv";
 
 const nextAuth = NextAuth({
+  basePath: "/api/auth",
   session: { strategy: "jwt" },
   secret: getAuthSecret(),
   pages: {
     signIn: "/login",
     newUser: "/register",
+    error: "/login",
   },
   trustHost: true,
   providers: [

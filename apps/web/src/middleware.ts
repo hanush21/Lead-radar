@@ -5,6 +5,8 @@ import { getAuthSecret } from "@/modules/auth/infrastructure/authEnv";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const hasAuthError = request.nextUrl.searchParams.has("error");
+  const forceAuthView = request.nextUrl.searchParams.get("force") === "1";
   const token = await getToken({
     req: request,
     secret: getAuthSecret(),
@@ -18,7 +20,7 @@ export async function middleware(request: NextRequest) {
 
   if (token) {
     // Authenticated users should not stay in auth forms or home splash.
-    if (isAuthPage || pathname === "/") {
+    if ((isAuthPage && !hasAuthError && !forceAuthView) || pathname === "/") {
       return NextResponse.redirect(new URL("/search", request.url));
     }
     return NextResponse.next();

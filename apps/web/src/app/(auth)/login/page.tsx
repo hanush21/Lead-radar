@@ -22,6 +22,10 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     setRegistered(params.get("registered") === "true");
     setResetSuccess(params.get("reset") === "success");
+    const authError = params.get("error");
+    if (authError === "Configuration") {
+      setError("La autenticacion no esta bien configurada en produccion. Revisa NEXTAUTH/AUTH URL y SECRET.");
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
