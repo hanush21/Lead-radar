@@ -26,6 +26,9 @@ fi
 case "$SERVICE_ROLE" in
   web)
     echo "[entrypoint] Starting web service..."
+    if [ -f "$APP_WORKSPACE/dist-hostinger/start.js" ]; then
+      exec node "$APP_WORKSPACE/dist-hostinger/start.js"
+    fi
     exec npm run start --workspace="$APP_WORKSPACE"
     ;;
   worker)
