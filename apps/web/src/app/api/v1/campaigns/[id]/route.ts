@@ -7,11 +7,11 @@ import { UnauthorizedError } from "@/shared/errors/AppError";
 const repo = new PrismaCampaignRepository();
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const campaign = await repo.findById(params.id);

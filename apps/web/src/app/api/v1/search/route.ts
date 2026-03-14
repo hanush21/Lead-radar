@@ -13,7 +13,7 @@ import { rateLimit } from "@/shared/lib/rate-limiter";
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const forwardedFor = request.headers.get("x-forwarded-for");

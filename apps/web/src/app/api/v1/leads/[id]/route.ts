@@ -14,11 +14,11 @@ const UpdateLeadSchema = z.object({
 });
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const useCase = new GetLeadByIdUseCase(repo);
@@ -35,7 +35,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const body = await request.json();
@@ -57,11 +57,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const existing = await repo.findById(params.id);

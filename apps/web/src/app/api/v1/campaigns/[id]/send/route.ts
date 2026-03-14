@@ -21,7 +21,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const body = await request.json();

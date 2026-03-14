@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: { batchId: string } };
 
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
   try {
-    const session = await auth();
+    const session = await auth(request);
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const batchId = String(params.batchId || "").trim();
