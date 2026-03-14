@@ -56,7 +56,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth(request);
+    const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const body = await request.json();

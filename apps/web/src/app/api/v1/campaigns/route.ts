@@ -9,7 +9,7 @@ const repo = new PrismaCampaignRepository();
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth(request);
+    const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const body = await request.json();
@@ -24,9 +24,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const session = await auth(request);
+    const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const campaigns = await repo.findAll(session.user.id);

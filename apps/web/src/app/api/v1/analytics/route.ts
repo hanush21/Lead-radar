@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/modules/auth/infrastructure/NextAuthAdapter";
 import { prisma } from "@/shared/lib/prisma";
 import { handleApiError } from "@/shared/errors/HttpError";
@@ -6,9 +6,9 @@ import { UnauthorizedError } from "@/shared/errors/AppError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const session = await auth(request);
+    const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const userId = session.user.id;
