@@ -7,7 +7,8 @@ import type { NextAuthConfig } from "next-auth";
  */
 export const authConfig = {
   session: { strategy: "jwt" },
-  secret: process.env.NEXTAUTH_SECRET,
+  // NextAuth v5 lee AUTH_SECRET automáticamente (fallback a NEXTAUTH_SECRET).
+  // No forzar ninguno explícitamente para evitar conflictos entre ambos env vars.
   pages: {
     signIn: "/login",
     newUser: "/register",
