@@ -20,12 +20,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
 
   function handleSignOut() {
-    const callbackUrl =
-      typeof window !== "undefined"
-        ? new URL("/login", window.location.origin).toString()
-        : "/login";
-
-    void signOut({ callbackUrl });
+    void signOut({ callbackUrl: "/login?force=1" });
   }
 
   return (
