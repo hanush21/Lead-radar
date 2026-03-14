@@ -21,26 +21,30 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const callbackFromQuery =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("callbackUrl")
-        : null;
-    const callbackUrl =
-      callbackFromQuery && callbackFromQuery.startsWith("/") && !callbackFromQuery.startsWith("//")
-        ? callbackFromQuery
-        : "/search";
+    const callbackUrl = "/search";
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-      callbackUrl,
-    });
+    let result;
+    try {
+      result = await signIn("credentials", {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+        callbackUrl,
+      });
+    } catch {
+      setLoading(false);
+      setError("No se pudo iniciar sesion. Intenta de nuevo en unos segundos.");
+      return;
+    }
 
     setLoading(false);
 
     if (result?.error) {
-      setError("Email o contrasena incorrectos");
+      setError(
+        result.error === "CredentialsSignin"
+          ? "Email o contrasena incorrectos"
+          : "No se pudo iniciar sesion. Intenta de nuevo en unos segundos."
+      );
       return;
     }
 
